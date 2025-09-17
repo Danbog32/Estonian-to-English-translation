@@ -11,7 +11,9 @@ export default function Transcriber() {
   const pendingWordsRef = useRef<string[]>([]);
   const preparedChunksRef = useRef<string[]>([]);
   const isSendingRef = useRef(false);
-  const partialWordsCountRef = useRef(0); // words accounted in current ASR segment
+  // Track current ASR segment words and how many have been emitted into chunks
+  const currentSegmentWordsRef = useRef<string[]>([]);
+  const emittedInSegmentRef = useRef(0);
 
   // Local translation chat history (mirrors translation.md): pairs of Estonian input and English output
   const historyRef = useRef<Array<{ et: string; en: string }>>([]);
@@ -66,8 +68,8 @@ export default function Transcriber() {
       }
       const newWords = cleaned.split(/\s+/);
       pendingWordsRef.current.push(...newWords);
-      while (pendingWordsRef.current.length >= 5) {
-        const chunkWords = pendingWordsRef.current.splice(0, 5);
+      while (pendingWordsRef.current.length >= 7) {
+        const chunkWords = pendingWordsRef.current.splice(0, 6);
         preparedChunksRef.current.push(chunkWords.join(" "));
       }
       if (flushRemainder && pendingWordsRef.current.length) {
@@ -83,15 +85,18 @@ export default function Transcriber() {
       const cleaned = normalize(partialText);
       if (!cleaned) return;
       const words = cleaned.split(/\s+/);
-      const accounted = partialWordsCountRef.current;
-      if (words.length <= accounted) return;
-      const delta = words.slice(accounted);
-      pendingWordsRef.current.push(...delta);
-      while (pendingWordsRef.current.length >= 5) {
-        const chunkWords = pendingWordsRef.current.splice(0, 5);
-        preparedChunksRef.current.push(chunkWords.join(" "));
+      currentSegmentWordsRef.current = words;
+      if (emittedInSegmentRef.current > words.length) {
+        emittedInSegmentRef.current = words.length;
       }
-      partialWordsCountRef.current = words.length;
+      while (words.length - emittedInSegmentRef.current >= 7) {
+        const chunkWords = words.slice(
+          emittedInSegmentRef.current,
+          emittedInSegmentRef.current + 6
+        );
+        preparedChunksRef.current.push(chunkWords.join(" "));
+        emittedInSegmentRef.current += 6;
+      }
     },
     [normalize]
   );
@@ -158,34 +163,63 @@ export default function Transcriber() {
     },
     onFinal: (text) => {
       appendText(text);
-      // Add any remainder beyond what partials have already accounted for
       const cleaned = normalize(text);
       const words = cleaned ? cleaned.split(/\s+/) : [];
-      if (words.length > partialWordsCountRef.current) {
-        const tail = words.slice(partialWordsCountRef.current).join(" ");
-        if (tail) ingestEtText(tail, false);
+      currentSegmentWordsRef.current = words;
+      if (emittedInSegmentRef.current > words.length) {
+        emittedInSegmentRef.current = words.length;
+      }
+      while (words.length - emittedInSegmentRef.current >= 7) {
+        const chunkWords = words.slice(
+          emittedInSegmentRef.current,
+          emittedInSegmentRef.current + 6
+        );
+        preparedChunksRef.current.push(chunkWords.join(" "));
+        emittedInSegmentRef.current += 6;
+      }
+      const remainder = words.slice(emittedInSegmentRef.current);
+      if (remainder.length) {
+        pendingWordsRef.current.push(...remainder);
+        while (pendingWordsRef.current.length >= 7) {
+          const chunkWords = pendingWordsRef.current.splice(0, 6);
+          preparedChunksRef.current.push(chunkWords.join(" "));
+        }
       }
       void drainQueue();
-      // Final marks end of current ASR segment; reset counter for next segment
-      partialWordsCountRef.current = 0;
+      // Reset per-segment counters for next ASR segment
+      emittedInSegmentRef.current = 0;
+      currentSegmentWordsRef.current = [];
     },
     onFlushComplete: (text) => {
       if (text) {
         appendText(text);
-        // Ensure any leftover words are flushed
         const cleaned = normalize(text);
         const words = cleaned ? cleaned.split(/\s+/) : [];
-        if (words.length > partialWordsCountRef.current) {
-          const tail = words.slice(partialWordsCountRef.current).join(" ");
-          if (tail) ingestEtText(tail, false);
+        currentSegmentWordsRef.current = words;
+        if (emittedInSegmentRef.current > words.length) {
+          emittedInSegmentRef.current = words.length;
         }
-        ingestEtText("", true);
-      } else {
-        ingestEtText("", true);
+        while (words.length - emittedInSegmentRef.current >= 7) {
+          const chunkWords = words.slice(
+            emittedInSegmentRef.current,
+            emittedInSegmentRef.current + 6
+          );
+          preparedChunksRef.current.push(chunkWords.join(" "));
+          emittedInSegmentRef.current += 6;
+        }
+        const remainder = words.slice(emittedInSegmentRef.current);
+        if (remainder.length) {
+          pendingWordsRef.current.push(...remainder);
+        }
+      }
+      if (pendingWordsRef.current.length) {
+        preparedChunksRef.current.push(pendingWordsRef.current.join(" "));
+        pendingWordsRef.current = [];
       }
       void drainQueue();
       // Reset per-segment counters
-      partialWordsCountRef.current = 0;
+      emittedInSegmentRef.current = 0;
+      currentSegmentWordsRef.current = [];
     },
     onError: () => {},
     onStreamStarted: () => {
@@ -193,7 +227,8 @@ export default function Transcriber() {
       // If mic is not yet started, it will start shortly via timeout in handleStart
       console.log("[ASR] onStreamStarted");
       // Ensure counters are reset at the start of a fresh stream
-      partialWordsCountRef.current = 0;
+      emittedInSegmentRef.current = 0;
+      currentSegmentWordsRef.current = [];
     },
   });
 
