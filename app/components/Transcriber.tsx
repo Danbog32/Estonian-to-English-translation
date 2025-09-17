@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useAsrWebSocket } from "../hooks/useAsrWebSocket";
 import { useMicrophoneRecorder } from "../hooks/useMicrophoneRecorder";
+import { formatTextForDisplay } from "../utils/textFormatting";
 
 export default function Transcriber() {
   const [transcript, setTranscript] = useState<string>("");
@@ -30,7 +31,7 @@ export default function Transcriber() {
     if (!text) return;
     setTranslation((prev) => {
       const next = prev ? prev + " " + text : text;
-      return next;
+      return formatTextForDisplay(next);
     });
   }, []);
 
@@ -270,45 +271,122 @@ export default function Transcriber() {
     resetSessionState();
   }, [resetSessionState]);
 
+  // Build display strings
+  const etDisplay = useMemo(() => {
+    return [transcript, asr.partialText].filter(Boolean).join(" ").trim();
+  }, [transcript, asr.partialText]);
+
+  const enDisplay = useMemo(
+    () => formatTextForDisplay(translation),
+    [translation]
+  );
+
+  const splitForHighlight = useCallback((text: string) => {
+    const words = text.trim().split(/\s+/).filter(Boolean);
+    if (words.length <= 0) return { lead: "", tail: "" };
+    const highlightStart = Math.max(0, words.length - 2);
+    return {
+      lead: words.slice(0, highlightStart).join(" "),
+      tail: words.slice(highlightStart).join(" "),
+    };
+  }, []);
+
+  const etSplit = useMemo(
+    () => splitForHighlight(etDisplay),
+    [etDisplay, splitForHighlight]
+  );
+  const enSplit = useMemo(
+    () => splitForHighlight(enDisplay),
+    [enDisplay, splitForHighlight]
+  );
+
   return (
-    <div className="w-full max-w-2xl flex flex-col gap-4">
-      <div className="flex gap-2">
-        <button
-          className="rounded-md bg-blue-600 text-white px-4 py-2 disabled:opacity-50"
-          onClick={handleStart}
-          disabled={isBusy}
-        >
-          Start
-        </button>
-        <button
-          className="rounded-md bg-gray-700 text-white px-4 py-2 disabled:opacity-50"
-          onClick={handleStop}
-          disabled={!mic.isRecording && !asr.isStreamActive}
-        >
-          Stop
-        </button>
-        <button
-          className="rounded-md bg-gray-200 text-black px-4 py-2"
-          onClick={handleClear}
-        >
-          Clear
-        </button>
+    <div className="relative min-h-screen w-full bg-[radial-gradient(1200px_600px_at_-10%_-10%,#0f172a_0%,#0b0f12_40%,#050607_80%)] text-neutral-100">
+      <div className="grid h-svh grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-white/10">
+        {/* Estonian (source) */}
+        <section className="relative flex h-full items-start justify-start px-3">
+          <div className="absolute left-4 top-4 sm:top-6 text-[10px] sm:text-xs tracking-widest uppercase text-white/40">
+            Estonian
+          </div>
+          <div className="!mt-12 sm:mt-2 w-full text-left font-mono font-semibold uppercase tracking-[0.06em] leading-[1.08] text-[clamp(22px,5.6vw,42px)] text-balance">
+            {etDisplay ? (
+              <>
+                {etSplit.lead && (
+                  <span className="text-white/90">
+                    {etSplit.lead + (etSplit.tail ? " " : "")}
+                  </span>
+                )}
+                {etSplit.tail && (
+                  <span className="text-emerald-400">{etSplit.tail}</span>
+                )}
+              </>
+            ) : (
+              <span className="text-white/30">Speak in Estonian to begin…</span>
+            )}
+          </div>
+        </section>
+
+        {/* English (translation) */}
+        <section className="relative flex h-full items-start justify-start px-3 bg-white/[0.01]">
+          <div className="absolute left-4 top-4 sm:top-6 text-[10px] sm:text-xs tracking-widest uppercase text-white/40">
+            English
+          </div>
+          <div className="!mt-12 sm:mt-2 w-full text-left font-mono font-semibold uppercase tracking-[0.06em] leading-[1.08] text-[clamp(22px,5.6vw,42px)] text-balance">
+            {enDisplay ? (
+              <>
+                {enSplit.lead && (
+                  <span className="text-white/90">
+                    {enSplit.lead + (enSplit.tail ? " " : "")}
+                  </span>
+                )}
+                {enSplit.tail && (
+                  <span className="text-emerald-400">{enSplit.tail}</span>
+                )}
+              </>
+            ) : (
+              <span className="text-white/30">
+                English translation will appear here…
+              </span>
+            )}
+          </div>
+        </section>
       </div>
 
-      {asr.partialText && (
-        <div className="text-gray-500 italic">{asr.partialText}</div>
+      {/* Floating Controls */}
+      <div className="pointer-events-none fixed inset-x-0 bottom-6 flex items-center justify-center">
+        <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-2 py-1.5 backdrop-blur-md shadow-lg">
+          <span
+            className={`inline-flex h-2 w-2 rounded-full ${isBusy ? "bg-emerald-400" : "bg-white/30"}`}
+          />
+          <button
+            className="rounded-full bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-500 text-black px-4 py-2 text-sm font-medium disabled:opacity-50"
+            onClick={handleStart}
+            disabled={isBusy}
+          >
+            Start
+          </button>
+          <button
+            className="rounded-full bg-white/10 hover:bg-white/20 text-white px-4 py-2 text-sm font-medium disabled:opacity-50"
+            onClick={handleStop}
+            disabled={!mic.isRecording && !asr.isStreamActive}
+          >
+            Stop
+          </button>
+          <button
+            className="rounded-full bg-white/0 hover:bg-white/10 text-white/80 px-3 py-2 text-sm"
+            onClick={handleClear}
+          >
+            Clear
+          </button>
+        </div>
+      </div>
+
+      {/* Errors */}
+      {(asr.error || mic.error) && (
+        <div className="fixed left-1/2 top-4 -translate-x-1/2 rounded-md bg-red-500/10 text-red-300 px-3 py-1.5 text-sm border border-red-500/20">
+          {asr.error || mic.error}
+        </div>
       )}
-
-      <div className="whitespace-pre-wrap rounded border p-3 min-h-32">
-        {transcript || "Transcript will appear here..."}
-      </div>
-
-      <div className=" ">
-        {translation || "Translation will appear here..."}
-      </div>
-
-      {asr.error && <div className="text-red-600">{asr.error}</div>}
-      {mic.error && <div className="text-red-600">{mic.error}</div>}
     </div>
   );
 }
