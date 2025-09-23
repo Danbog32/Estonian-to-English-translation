@@ -104,18 +104,6 @@ export default function ServerStatus() {
                 />
               </svg>
             )}
-            {ui.icon === "clock" && (
-              <svg
-                aria-hidden="true"
-                viewBox="0 0 20 20"
-                className="h-4 w-4 text-amber-400"
-              >
-                <path
-                  fill="currentColor"
-                  d="M10 1.7a8.3 8.3 0 1 0 0 16.6A8.3 8.3 0 0 0 10 1.7Zm.8 4.2H9.2v5l4.2 2.5.8-1.3-3.4-2z"
-                />
-              </svg>
-            )}
             {ui.icon === "alert" && (
               <svg
                 aria-hidden="true"

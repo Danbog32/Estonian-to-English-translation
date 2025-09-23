@@ -1,11 +1,11 @@
-import TranscriberWrapper from "./components/TranscriberWrapper";
-import ServerStatusWrapper from "./components/ServerStatusWrapper";
+import Transcriber from "./components/Transcriber";
+import ServerStatus from "./components/ServerStatus";
 
 export default function Home() {
   return (
     <div className="min-h-screen">
-      <ServerStatusWrapper />
-      <TranscriberWrapper />
+      <ServerStatus />
+      <Transcriber />
     </div>
   );
 }
