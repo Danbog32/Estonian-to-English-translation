@@ -126,7 +126,7 @@ export default function ResizableSplit({
   return (
     <div
       ref={containerRef}
-      className={`relative flex flex-col md:flex-row w-full h-full ${className}`}
+      className={`relative flex flex-col md:flex-row w-full min-h-svh h-full ${className}`}
     >
       {showLeft && (
         <div
