@@ -4,6 +4,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { useAsrWebSocket } from "../hooks/useAsrWebSocket";
 import { useMicrophoneRecorder } from "../hooks/useMicrophoneRecorder";
 import { formatTextForDisplay } from "../utils/textFormatting";
+import ResizableSplit from "./ResizableSplit";
 
 export default function Transcriber() {
   const [transcript, setTranscript] = useState<string>("");
@@ -302,55 +303,62 @@ export default function Transcriber() {
 
   return (
     <div className="relative min-h-screen w-full bg-[radial-gradient(1200px_600px_at_-10%_-10%,#0f172a_0%,#0b0f12_40%,#050607_80%)] text-neutral-100">
-      <div className="grid h-svh grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-white/10">
-        {/* Estonian (source) */}
-        <section className="relative flex h-full items-start justify-start px-3">
-          <div className="absolute left-4 top-4 sm:top-6 text-[10px] sm:text-xs tracking-widest uppercase text-white/40">
-            Estonian
-          </div>
-          <div className="!mt-12 sm:mt-2 w-full text-left font-mono font-semibold uppercase tracking-[0.06em] leading-[1.08] text-[clamp(22px,5.6vw,42px)] text-balance">
-            {etDisplay ? (
-              <>
-                {etSplit.lead && (
-                  <span className="text-white/90">
-                    {etSplit.lead + (etSplit.tail ? " " : "")}
-                  </span>
-                )}
-                {etSplit.tail && (
-                  <span className="text-emerald-400">{etSplit.tail}</span>
-                )}
-              </>
-            ) : (
-              <span className="text-white/30">Speak in Estonian to begin…</span>
-            )}
-          </div>
-        </section>
-
-        {/* English (translation) */}
-        <section className="relative flex h-full items-start justify-start px-3 bg-white/[0.01]">
-          <div className="absolute left-4 top-4 sm:top-6 text-[10px] sm:text-xs tracking-widest uppercase text-white/40">
-            English
-          </div>
-          <div className="!mt-12 sm:mt-2 w-full text-left font-mono font-semibold uppercase tracking-[0.06em] leading-[1.08] text-[clamp(22px,5.6vw,42px)] text-balance">
-            {enDisplay ? (
-              <>
-                {enSplit.lead && (
-                  <span className="text-white/90">
-                    {enSplit.lead + (enSplit.tail ? " " : "")}
-                  </span>
-                )}
-                {enSplit.tail && (
-                  <span className="text-emerald-400">{enSplit.tail}</span>
-                )}
-              </>
-            ) : (
-              <span className="text-white/30">
-                English translation will appear here…
-              </span>
-            )}
-          </div>
-        </section>
-      </div>
+      <ResizableSplit
+        initialLeftFraction={0.5}
+        minLeftPx={240}
+        minRightPx={240}
+        gutterWidth={12}
+        left={
+          <section className="relative flex h-full items-start justify-start px-3">
+            <div className="absolute left-4 top-4 sm:top-6 text-[10px] sm:text-xs tracking-widest uppercase text-white/40">
+              Estonian
+            </div>
+            <div className="!mt-12 sm:mt-2 w-full text-left font-mono font-semibold uppercase tracking-[0.06em] leading-[1.08] text-[clamp(22px,5.6vw,42px)] text-balance">
+              {etDisplay ? (
+                <>
+                  {etSplit.lead && (
+                    <span className="text-white/90">
+                      {etSplit.lead + (etSplit.tail ? " " : "")}
+                    </span>
+                  )}
+                  {etSplit.tail && (
+                    <span className="text-emerald-400">{etSplit.tail}</span>
+                  )}
+                </>
+              ) : (
+                <span className="text-white/30">
+                  Speak in Estonian to begin…
+                </span>
+              )}
+            </div>
+          </section>
+        }
+        right={
+          <section className="relative flex h-full items-start justify-start px-3 bg-white/[0.01]">
+            <div className="absolute left-4 top-4 sm:top-6 text-[10px] sm:text-xs tracking-widest uppercase text-white/40">
+              English
+            </div>
+            <div className="!mt-12 sm:mt-2 w-full text-left font-mono font-semibold uppercase tracking-[0.06em] leading-[1.08] text-[clamp(22px,5.6vw,42px)] text-balance">
+              {enDisplay ? (
+                <>
+                  {enSplit.lead && (
+                    <span className="text-white/90">
+                      {enSplit.lead + (enSplit.tail ? " " : "")}
+                    </span>
+                  )}
+                  {enSplit.tail && (
+                    <span className="text-emerald-400">{enSplit.tail}</span>
+                  )}
+                </>
+              ) : (
+                <span className="text-white/30">
+                  English translation will appear here…
+                </span>
+              )}
+            </div>
+          </section>
+        }
+      />
 
       {/* Floating Controls */}
       <div className="pointer-events-none fixed inset-x-0 bottom-6 flex items-center justify-center">
