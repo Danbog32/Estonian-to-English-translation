@@ -10,6 +10,8 @@ type ResizableSplitProps = {
   minRightPx?: number;
   gutterWidth?: number; // px
   className?: string;
+  viewMode?: "left" | "split" | "right";
+  onViewModeChange?: (mode: "left" | "split" | "right") => void;
 };
 
 export default function ResizableSplit({
@@ -20,6 +22,8 @@ export default function ResizableSplit({
   minRightPx = 260,
   gutterWidth = 10,
   className = "",
+  viewMode: externalViewMode,
+  onViewModeChange,
 }: ResizableSplitProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [leftFraction, setLeftFraction] = useState(() => {
@@ -28,6 +32,14 @@ export default function ResizableSplit({
     return initialLeftFraction;
   });
   const isDraggingRef = useRef(false);
+  const [internalViewMode, setInternalViewMode] = useState<
+    "left" | "split" | "right"
+  >("split");
+  const lastSplitFractionRef = useRef(leftFraction);
+
+  // Use external view mode if provided, otherwise use internal state
+  const viewMode = externalViewMode ?? internalViewMode;
+  const setViewMode = onViewModeChange ?? setInternalViewMode;
 
   const onDrag = useCallback(
     (clientX: number) => {
@@ -88,36 +100,67 @@ export default function ResizableSplit({
     [onDrag]
   );
 
-  const leftStyle = { flexBasis: `${leftFraction * 100}%` } as const;
+  const prevModeRef = useRef(viewMode);
+  useEffect(() => {
+    const prev = prevModeRef.current;
+    if (prev !== viewMode) {
+      if (prev === "split" && viewMode !== "split") {
+        lastSplitFractionRef.current = leftFraction;
+      } else if (prev !== "split" && viewMode === "split") {
+        const next = lastSplitFractionRef.current;
+        setLeftFraction(Math.max(0.05, Math.min(0.95, next)));
+      }
+      prevModeRef.current = viewMode;
+    }
+  }, [viewMode, leftFraction]);
+
+  const isSplit = viewMode === "split";
+  const showLeft = viewMode !== "right";
+  const showRight = viewMode !== "left";
+
+  const leftStyle = isSplit
+    ? ({ flexBasis: `${leftFraction * 100}%` } as const)
+    : ({} as const);
   const gutterStyle = { width: `${gutterWidth}px` } as const;
 
   return (
     <div
       ref={containerRef}
-      className={`flex flex-col md:flex-row w-full h-svh ${className}`}
+      className={`relative flex flex-col md:flex-row w-full h-full ${className}`}
     >
-      <div className="relative flex h-full md:h-auto" style={leftStyle}>
-        <div className="flex-1 min-w-0">{left}</div>
-      </div>
+      {showLeft && (
+        <div
+          className={`relative flex h-full md:h-auto ${
+            isSplit ? "" : "flex-1"
+          }`}
+          style={leftStyle}
+        >
+          <div className="flex-1 min-w-0">{left}</div>
+        </div>
+      )}
 
-      {/* Gutter / Handle - active on md+ horizontal layout */}
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize panels"
-        className="hidden md:block relative select-none"
-        style={gutterStyle}
-        onMouseDown={(e) => startDrag(e.clientX)}
-        onTouchStart={(e) => startDrag(e.touches[0]?.clientX)}
-      >
-        <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-white/10" />
-        <div className="absolute inset-y-0 left-0 right-0 cursor-col-resize hover:bg-white/5 active:bg-white/10" />
-        <div className="absolute top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 h-8 w-1.5 rounded-full bg-white/30 cursor-col-resize" />
-      </div>
+      {/* Gutter / Handle - only in split mode on md+ horizontal layout */}
+      {isSplit && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize panels"
+          className="hidden md:block relative select-none"
+          style={gutterStyle}
+          onMouseDown={(e) => startDrag(e.clientX)}
+          onTouchStart={(e) => startDrag(e.touches[0]?.clientX)}
+        >
+          <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-white/10" />
+          <div className="absolute inset-y-0 left-0 right-0 cursor-col-resize hover:bg-white/5 active:bg-white/10" />
+          <div className="absolute top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 h-8 w-1.5 rounded-full bg-white/30 cursor-col-resize" />
+        </div>
+      )}
 
-      <div className="flex-1 min-w-0 flex h-full md:h-auto">
-        <div className="flex-1 min-w-0">{right}</div>
-      </div>
+      {showRight && (
+        <div className={`flex-1 min-w-0 flex h-full md:h-auto`}>
+          <div className="flex-1 min-w-0">{right}</div>
+        </div>
+      )}
     </div>
   );
 }

@@ -5,10 +5,12 @@ import { useAsrWebSocket } from "../hooks/useAsrWebSocket";
 import { useMicrophoneRecorder } from "../hooks/useMicrophoneRecorder";
 import { formatTextForDisplay } from "../utils/textFormatting";
 import ResizableSplit from "./ResizableSplit";
+import HeaderControls from "./HeaderControls";
 
 export default function Transcriber() {
   const [transcript, setTranscript] = useState<string>("");
   const [translation, setTranslation] = useState<string>("");
+  const [viewMode, setViewMode] = useState<"left" | "split" | "right">("split");
 
   const pendingWordsRef = useRef<string[]>([]);
   const preparedChunksRef = useRef<string[]>([]);
@@ -308,10 +310,16 @@ export default function Transcriber() {
         minLeftPx={240}
         minRightPx={240}
         gutterWidth={12}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
         left={
           <section className="relative flex h-full items-start justify-start px-3">
-            <div className="absolute left-4 top-4 sm:top-6 text-[10px] sm:text-xs tracking-widest uppercase text-white/40">
-              Estonian
+            <div className="absolute left-3 top-4 sm:top-6">
+              <HeaderControls
+                side="left"
+                mode={viewMode}
+                onChange={setViewMode}
+              />
             </div>
             <div className="!mt-12 sm:mt-2 w-full text-left font-mono font-semibold uppercase tracking-[0.06em] leading-[1.08] text-[clamp(22px,5.6vw,42px)] text-balance">
               {etDisplay ? (
@@ -335,8 +343,12 @@ export default function Transcriber() {
         }
         right={
           <section className="relative flex h-full items-start justify-start px-3 bg-white/[0.01]">
-            <div className="absolute left-4 top-4 sm:top-6 text-[10px] sm:text-xs tracking-widest uppercase text-white/40">
-              English
+            <div className="absolute left-3 top-4 sm:top-6">
+              <HeaderControls
+                side="right"
+                mode={viewMode}
+                onChange={setViewMode}
+              />
             </div>
             <div className="!mt-12 sm:mt-2 w-full text-left font-mono font-semibold uppercase tracking-[0.06em] leading-[1.08] text-[clamp(22px,5.6vw,42px)] text-balance">
               {enDisplay ? (
