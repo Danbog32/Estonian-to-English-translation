@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAsrWebSocket } from "../hooks/useAsrWebSocket";
 import { useMicrophoneRecorder } from "../hooks/useMicrophoneRecorder";
 import { formatTextForDisplay } from "../utils/textFormatting";
@@ -18,6 +18,18 @@ export default function Transcriber() {
   // Track current ASR segment words and how many have been emitted into chunks
   const currentSegmentWordsRef = useRef<string[]>([]);
   const emittedInSegmentRef = useRef(0);
+  // Track the number of words in the most recently appended English translation batch
+  const lastEnBatchSizeRef = useRef(0);
+  // Stable word list for English rendering; only appends to avoid retokenizing prior words
+  const enWordsRef = useRef<string[]>([]);
+  // Highlight state: during reveal, only the newest appeared word is emerald
+  const [revealActiveIndex, setRevealActiveIndex] = useState<number | null>(
+    null
+  );
+  const revealBaseIndexRef = useRef(0);
+  const revealStartTimeRef = useRef(0);
+  const revealRafRef = useRef<number | null>(null);
+  const REVEAL_DELAY_MS = 120;
 
   // Local translation chat history (mirrors translation.md): pairs of Estonian input and English output
   const historyRef = useRef<Array<{ et: string; en: string }>>([]);
@@ -32,6 +44,12 @@ export default function Transcriber() {
 
   const appendTranslation = useCallback((text: string) => {
     if (!text) return;
+    // Tokenize and append only the new words into a stable list
+    const newWords = text.trim().split(/\s+/).filter(Boolean);
+    lastEnBatchSizeRef.current = newWords.length;
+    if (newWords.length) {
+      enWordsRef.current.push(...newWords);
+    }
     setTranslation((prev) => {
       const next = prev ? prev + " " + text : text;
       return formatTextForDisplay(next);
@@ -44,6 +62,7 @@ export default function Transcriber() {
     pendingWordsRef.current = [];
     preparedChunksRef.current = [];
     historyRef.current = [];
+    enWordsRef.current = [];
   }, []);
 
   const normalize = useCallback((text: string) => {
@@ -283,6 +302,44 @@ export default function Transcriber() {
     () => formatTextForDisplay(translation),
     [translation]
   );
+  // Render from stable list; prior words never change identity or content
+  const enWords = enWordsRef.current;
+
+  // Drive active emerald highlight during staggered word reveal
+  useEffect(() => {
+    const batchSize = lastEnBatchSizeRef.current;
+    if (!batchSize || enWords.length === 0) {
+      setRevealActiveIndex(null);
+      return;
+    }
+    const base = Math.max(0, enWords.length - batchSize);
+    revealBaseIndexRef.current = base;
+    revealStartTimeRef.current = performance.now();
+    if (revealRafRef.current) cancelAnimationFrame(revealRafRef.current);
+    const step = () => {
+      const elapsed = performance.now() - revealStartTimeRef.current;
+      const progressed = Math.min(
+        batchSize - 1,
+        Math.floor(elapsed / REVEAL_DELAY_MS)
+      );
+      setRevealActiveIndex(base + progressed);
+      if (progressed < batchSize - 1) {
+        revealRafRef.current = requestAnimationFrame(step);
+      } else {
+        revealRafRef.current = null;
+        // Keep the final word emerald briefly; then revert to last-two rule
+        setTimeout(() => {
+          setRevealActiveIndex(null);
+          lastEnBatchSizeRef.current = 0;
+        }, REVEAL_DELAY_MS);
+      }
+    };
+    revealRafRef.current = requestAnimationFrame(step);
+    return () => {
+      if (revealRafRef.current) cancelAnimationFrame(revealRafRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enWords.length]);
 
   const splitForHighlight = useCallback((text: string) => {
     const words = text.trim().split(/\s+/).filter(Boolean);
@@ -298,10 +355,7 @@ export default function Transcriber() {
     () => splitForHighlight(etDisplay),
     [etDisplay, splitForHighlight]
   );
-  const enSplit = useMemo(
-    () => splitForHighlight(enDisplay),
-    [enDisplay, splitForHighlight]
-  );
+  // Note: left (Estonian) uses the split highlighting; right (English) renders per-word for staggered animation
 
   return (
     <div className="relative min-h-screen w-full bg-[radial-gradient(1200px_600px_at_-10%_-10%,#0f172a_0%,#0b0f12_40%,#050607_80%)] text-neutral-100">
@@ -321,7 +375,7 @@ export default function Transcriber() {
                 onChange={setViewMode}
               />
             </div>
-            <div className="!mt-12 sm:mt-2 w-full text-left font-mono font-semibold uppercase tracking-[0.06em] leading-[1.08] text-[clamp(22px,5.6vw,42px)] text-balance">
+            <div className="!mt-12 sm:mt-2 w-full text-left font-mono font-semibold uppercase tracking-[0.06em] leading-[1.08] text-[clamp(22px,5.6vw,42px)]">
               {etDisplay ? (
                 <>
                   {etSplit.lead && (
@@ -350,17 +404,44 @@ export default function Transcriber() {
                 onChange={setViewMode}
               />
             </div>
-            <div className="!mt-12 sm:mt-2 w-full text-left font-mono font-semibold uppercase tracking-[0.06em] leading-[1.08] text-[clamp(22px,5.6vw,42px)] text-balance">
-              {enDisplay ? (
+            <div className="!mt-12 sm:mt-2 w-full text-left font-mono font-semibold uppercase tracking-[0.06em] leading-[1.08] text-[clamp(22px,5.6vw,42px)]">
+              {enWords.length > 0 ? (
                 <>
-                  {enSplit.lead && (
-                    <span className="text-white/90">
-                      {enSplit.lead + (enSplit.tail ? " " : "")}
-                    </span>
-                  )}
-                  {enSplit.tail && (
-                    <span className="text-emerald-400">{enSplit.tail}</span>
-                  )}
+                  {enWords.map((word, idx) => {
+                    // Highlight logic
+                    let isHighlighted: boolean;
+                    if (revealActiveIndex !== null) {
+                      // During reveal: only the newest appeared word is emerald
+                      isHighlighted = idx === revealActiveIndex;
+                    } else {
+                      // Idle: the last two words remain emerald
+                      const lastTwoStart = Math.max(0, enWords.length - 2);
+                      isHighlighted = idx >= lastTwoStart;
+                    }
+                    const fadeStart = Math.max(
+                      0,
+                      enWords.length - lastEnBatchSizeRef.current
+                    );
+                    const isFading = idx >= fadeStart;
+                    const delayMs = isFading
+                      ? (idx - fadeStart) * REVEAL_DELAY_MS
+                      : 0;
+                    return (
+                      <span
+                        key={idx}
+                        className={`${isHighlighted ? "text-emerald-400" : "text-white/90"} ${isFading ? "word-fade-in" : ""}`}
+                        style={
+                          isFading
+                            ? { animationDelay: `${delayMs}ms` }
+                            : undefined
+                        }
+                      >
+                        {/* Add leading space only for non-punctuation tokens and non-first tokens */}
+                        {idx > 0 && !/^[,.;:!?)}\]]/.test(word) ? " " : ""}
+                        {word}
+                      </span>
+                    );
+                  })}
                 </>
               ) : (
                 <span className="text-white/30">
