@@ -6,6 +6,7 @@ import { useMicrophoneRecorder } from "../hooks/useMicrophoneRecorder";
 import { formatTextForDisplay } from "../utils/textFormatting";
 import ResizableSplit from "./ResizableSplit";
 import HeaderControls from "./HeaderControls";
+import WordDisplay from "./WordDisplay";
 
 export default function Transcriber() {
   const [transcript, setTranscript] = useState<string>("");
@@ -302,8 +303,14 @@ export default function Transcriber() {
     () => formatTextForDisplay(translation),
     [translation]
   );
+
   // Render from stable list; prior words never change identity or content
   const enWords = enWordsRef.current;
+
+  // Calculate fade start index for new words
+  const fadeStart = useMemo(() => {
+    return Math.max(0, enWords.length - lastEnBatchSizeRef.current);
+  }, [enWords.length]);
 
   // Drive active emerald highlight during staggered word reveal
   useEffect(() => {
@@ -406,43 +413,12 @@ export default function Transcriber() {
             </div>
             <div className="!mt-12 sm:mt-2 w-full text-left font-mono font-semibold uppercase tracking-[0.06em] leading-[1.08] text-[clamp(22px,5.6vw,42px)]">
               {enWords.length > 0 ? (
-                <>
-                  {enWords.map((word, idx) => {
-                    // Highlight logic
-                    let isHighlighted: boolean;
-                    if (revealActiveIndex !== null) {
-                      // During reveal: only the newest appeared word is emerald
-                      isHighlighted = idx === revealActiveIndex;
-                    } else {
-                      // Idle: the last two words remain emerald
-                      const lastTwoStart = Math.max(0, enWords.length - 2);
-                      isHighlighted = idx >= lastTwoStart;
-                    }
-                    const fadeStart = Math.max(
-                      0,
-                      enWords.length - lastEnBatchSizeRef.current
-                    );
-                    const isFading = idx >= fadeStart;
-                    const delayMs = isFading
-                      ? (idx - fadeStart) * REVEAL_DELAY_MS
-                      : 0;
-                    return (
-                      <span
-                        key={idx}
-                        className={`${isHighlighted ? "text-emerald-400" : "text-white/90"} ${isFading ? "word-fade-in" : ""}`}
-                        style={
-                          isFading
-                            ? { animationDelay: `${delayMs}ms` }
-                            : undefined
-                        }
-                      >
-                        {/* Add leading space only for non-punctuation tokens and non-first tokens */}
-                        {idx > 0 && !/^[,.;:!?)}\]]/.test(word) ? " " : ""}
-                        {word}
-                      </span>
-                    );
-                  })}
-                </>
+                <WordDisplay
+                  words={enWords}
+                  revealActiveIndex={revealActiveIndex}
+                  fadeStart={fadeStart}
+                  revealDelayMs={REVEAL_DELAY_MS}
+                />
               ) : (
                 <span className="text-white/30">
                   English translation will appear here…
