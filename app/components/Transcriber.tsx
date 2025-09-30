@@ -7,6 +7,7 @@ import { formatTextForDisplay } from "../utils/textFormatting";
 import ResizableSplit from "./ResizableSplit";
 import HeaderControls from "./HeaderControls";
 import WordDisplay from "./WordDisplay";
+import { Button } from "@heroui/button";
 
 export default function Transcriber() {
   const [transcript, setTranscript] = useState<string>("");
@@ -435,26 +436,26 @@ export default function Transcriber() {
           <span
             className={`inline-flex h-2 w-2 rounded-full ${isBusy ? "bg-emerald-400" : "bg-white/30"}`}
           />
-          <button
+          <Button
             className="rounded-full bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-500 text-black px-4 py-2 text-sm font-medium disabled:opacity-50"
-            onClick={handleStart}
+            onPress={handleStart}
             disabled={isBusy}
           >
             Start
-          </button>
-          <button
+          </Button>
+          <Button
             className="rounded-full bg-white/10 hover:bg-white/20 text-white px-4 py-2 text-sm font-medium disabled:opacity-50"
-            onClick={handleStop}
+            onPress={handleStop}
             disabled={!mic.isRecording && !asr.isStreamActive}
           >
             Stop
-          </button>
-          <button
+          </Button>
+          <Button
             className="rounded-full bg-white/0 hover:bg-white/10 text-white/80 px-3 py-2 text-sm"
-            onClick={handleClear}
+            onPress={handleClear}
           >
             Clear
-          </button>
+          </Button>
         </div>
       </div>
 
