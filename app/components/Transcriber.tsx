@@ -3,12 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAsrWebSocket } from "../hooks/useAsrWebSocket";
 import { useMicrophoneRecorder } from "../hooks/useMicrophoneRecorder";
+import { useAutoScroll } from "../hooks/useAutoScroll";
 import { formatTextForDisplay } from "../utils/textFormatting";
 import ResizableSplit from "./ResizableSplit";
 import HeaderControls from "./HeaderControls";
 import WordDisplay from "./WordDisplay";
 import { Button } from "@heroui/button";
-import { ScrollShadow } from "@heroui/scroll-shadow";
 
 export default function Transcriber() {
   const [transcript, setTranscript] = useState<string>("");
@@ -366,6 +366,19 @@ export default function Transcriber() {
   );
   // Note: left (Estonian) uses the split highlighting; right (English) renders per-word for staggered animation
 
+  // Autoscroll refs for both containers
+  const etScrollRef = useAutoScroll<HTMLDivElement>({
+    content: etDisplay,
+    threshold: 50,
+    enabled: true,
+  });
+
+  const enScrollRef = useAutoScroll<HTMLDivElement>({
+    content: enDisplay,
+    threshold: 50,
+    enabled: true,
+  });
+
   return (
     <div className="relative h-screen w-full bg-[radial-gradient(1200px_600px_at_-10%_-10%,#0f172a_0%,#0b0f12_40%,#050607_80%)] text-neutral-100 overflow-hidden">
       <ResizableSplit
@@ -384,7 +397,10 @@ export default function Transcriber() {
                 onChange={setViewMode}
               />
             </div>
-            <ScrollShadow className="!mt-12 sm:mt-2 flex-1 h-full overflow-y-auto pt-12 sm:pt-2 w-full text-left font-mono font-semibold uppercase tracking-[0.06em] leading-[1.08] text-[clamp(22px,5.6vw,42px)] custom-scrollbar">
+            <div
+              ref={etScrollRef}
+              className="pb-26 !mt-12 sm:mt-2 flex-1 h-full overflow-y-auto pt-12 sm:pt-2 w-full text-left font-mono font-semibold uppercase tracking-[0.06em] leading-[1.08] text-[clamp(22px,5.6vw,42px)] custom-scrollbar"
+            >
               {etDisplay ? (
                 <>
                   {etSplit.lead && (
@@ -401,7 +417,7 @@ export default function Transcriber() {
                   Speak in Estonian to begin…
                 </span>
               )}
-            </ScrollShadow>
+            </div>
           </section>
         }
         right={
@@ -413,7 +429,10 @@ export default function Transcriber() {
                 onChange={setViewMode}
               />
             </div>
-            <ScrollShadow className="!mt-14 sm:mt-2flex-1 h-full overflow-y-auto pt-12 sm:pt-2 w-full text-left font-mono font-semibold uppercase tracking-[0.06em] leading-[1.08] text-[clamp(22px,5.6vw,42px)] custom-scrollbar">
+            <div
+              ref={enScrollRef}
+              className="pb-26 !mt-12 sm:mt-2 flex-1 h-full overflow-y-auto pt-12 sm:pt-2 w-full text-left font-mono font-semibold uppercase tracking-[0.06em] leading-[1.08] text-[clamp(22px,5.6vw,42px)] custom-scrollbar"
+            >
               {enWords.length > 0 ? (
                 <WordDisplay
                   words={enWords}
@@ -426,7 +445,7 @@ export default function Transcriber() {
                   English translation will appear here…
                 </span>
               )}
-            </ScrollShadow>
+            </div>
           </section>
         }
       />
