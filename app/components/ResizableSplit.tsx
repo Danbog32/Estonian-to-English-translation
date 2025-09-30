@@ -126,16 +126,14 @@ export default function ResizableSplit({
   return (
     <div
       ref={containerRef}
-      className={`relative flex flex-col md:flex-row w-full min-h-svh h-full ${className}`}
+      className={`relative flex flex-col md:flex-row w-full h-full ${className}`}
     >
       {showLeft && (
         <div
-          className={`relative flex h-full md:h-auto ${
-            isSplit ? "" : "flex-1"
-          }`}
+          className={`relative flex h-full ${isSplit ? "" : "flex-1"}`}
           style={leftStyle}
         >
-          <div className="flex-1 min-w-0">{left}</div>
+          <div className="flex-1 min-w-0 h-full overflow-hidden">{left}</div>
         </div>
       )}
 
@@ -157,8 +155,8 @@ export default function ResizableSplit({
       )}
 
       {showRight && (
-        <div className={`flex-1 min-w-0 flex h-full md:h-auto`}>
-          <div className="flex-1 min-w-0">{right}</div>
+        <div className={`flex-1 min-w-0 flex h-full`}>
+          <div className="flex-1 min-w-0 h-full overflow-hidden">{right}</div>
         </div>
       )}
     </div>

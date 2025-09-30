@@ -8,6 +8,7 @@ import ResizableSplit from "./ResizableSplit";
 import HeaderControls from "./HeaderControls";
 import WordDisplay from "./WordDisplay";
 import { Button } from "@heroui/button";
+import { ScrollShadow } from "@heroui/scroll-shadow";
 
 export default function Transcriber() {
   const [transcript, setTranscript] = useState<string>("");
@@ -366,7 +367,7 @@ export default function Transcriber() {
   // Note: left (Estonian) uses the split highlighting; right (English) renders per-word for staggered animation
 
   return (
-    <div className="relative min-h-screen w-full bg-[radial-gradient(1200px_600px_at_-10%_-10%,#0f172a_0%,#0b0f12_40%,#050607_80%)] text-neutral-100">
+    <div className="relative h-screen w-full bg-[radial-gradient(1200px_600px_at_-10%_-10%,#0f172a_0%,#0b0f12_40%,#050607_80%)] text-neutral-100 overflow-hidden">
       <ResizableSplit
         initialLeftFraction={0.5}
         minLeftPx={240}
@@ -375,15 +376,15 @@ export default function Transcriber() {
         viewMode={viewMode}
         onViewModeChange={setViewMode}
         left={
-          <section className="relative flex h-full items-start justify-start px-3">
-            <div className="absolute left-3 top-4 sm:top-6">
+          <section className="relative h-full flex flex-col px-3">
+            <div className="absolute left-3 top-4 sm:top-6 z-10">
               <HeaderControls
                 side="left"
                 mode={viewMode}
                 onChange={setViewMode}
               />
             </div>
-            <div className="!mt-12 sm:mt-2 w-full text-left font-mono font-semibold uppercase tracking-[0.06em] leading-[1.08] text-[clamp(22px,5.6vw,42px)]">
+            <ScrollShadow className="!mt-12 sm:mt-2 flex-1 h-full overflow-y-auto pt-12 sm:pt-2 w-full text-left font-mono font-semibold uppercase tracking-[0.06em] leading-[1.08] text-[clamp(22px,5.6vw,42px)] custom-scrollbar">
               {etDisplay ? (
                 <>
                   {etSplit.lead && (
@@ -400,19 +401,19 @@ export default function Transcriber() {
                   Speak in Estonian to begin…
                 </span>
               )}
-            </div>
+            </ScrollShadow>
           </section>
         }
         right={
-          <section className="relative flex h-full items-start justify-start px-3 bg-white/[0.01]">
-            <div className="absolute left-3 top-4 sm:top-6">
+          <section className="relative h-full flex flex-col px-3 bg-white/[0.01]">
+            <div className="absolute left-3 top-4 sm:top-6 z-10">
               <HeaderControls
                 side="right"
                 mode={viewMode}
                 onChange={setViewMode}
               />
             </div>
-            <div className="!mt-12 sm:mt-2 w-full text-left font-mono font-semibold uppercase tracking-[0.06em] leading-[1.08] text-[clamp(22px,5.6vw,42px)]">
+            <ScrollShadow className="!mt-14 sm:mt-2flex-1 h-full overflow-y-auto pt-12 sm:pt-2 w-full text-left font-mono font-semibold uppercase tracking-[0.06em] leading-[1.08] text-[clamp(22px,5.6vw,42px)] custom-scrollbar">
               {enWords.length > 0 ? (
                 <WordDisplay
                   words={enWords}
@@ -425,7 +426,7 @@ export default function Transcriber() {
                   English translation will appear here…
                 </span>
               )}
-            </div>
+            </ScrollShadow>
           </section>
         }
       />
