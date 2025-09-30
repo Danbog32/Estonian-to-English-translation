@@ -374,6 +374,7 @@ export default function Transcriber() {
   } = useAutoScroll<HTMLDivElement>({
     content: etDisplay,
     threshold: 50,
+    buttonThreshold: 200,
     enabled: true,
   });
 
@@ -384,6 +385,7 @@ export default function Transcriber() {
   } = useAutoScroll<HTMLDivElement>({
     content: enDisplay,
     threshold: 50,
+    buttonThreshold: 200,
     enabled: true,
   });
 

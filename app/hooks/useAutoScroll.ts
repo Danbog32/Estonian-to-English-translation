@@ -6,10 +6,15 @@ interface UseAutoScrollOptions {
    */
   content: string | number;
   /**
-   * Threshold in pixels from bottom to consider "at bottom"
+   * Threshold in pixels from bottom to consider "at bottom" for autoscroll
    * Default: 50
    */
   threshold?: number;
+  /**
+   * Threshold in pixels from bottom to show the scroll-to-bottom button
+   * Default: 200
+   */
+  buttonThreshold?: number;
   /**
    * Whether autoscroll is enabled
    * Default: true
@@ -26,6 +31,7 @@ interface UseAutoScrollOptions {
 export function useAutoScroll<T extends HTMLElement>({
   content,
   threshold = 50,
+  buttonThreshold = 200,
   enabled = true,
 }: UseAutoScrollOptions) {
   const scrollRef = useRef<T | null>(null);
@@ -35,7 +41,7 @@ export function useAutoScroll<T extends HTMLElement>({
   const [isScrolledUp, setIsScrolledUp] = useState(false);
 
   /**
-   * Check if the element is scrolled near the bottom
+   * Check if the element is scrolled near the bottom (for autoscroll)
    */
   const isNearBottom = useCallback(
     (element: HTMLElement): boolean => {
@@ -43,6 +49,17 @@ export function useAutoScroll<T extends HTMLElement>({
       return scrollHeight - scrollTop - clientHeight < threshold;
     },
     [threshold]
+  );
+
+  /**
+   * Check if the element is scrolled far enough to show button
+   */
+  const isScrolledFarFromBottom = useCallback(
+    (element: HTMLElement): boolean => {
+      const { scrollTop, scrollHeight, clientHeight } = element;
+      return scrollHeight - scrollTop - clientHeight > buttonThreshold;
+    },
+    [buttonThreshold]
   );
 
   /**
@@ -73,21 +90,23 @@ export function useAutoScroll<T extends HTMLElement>({
     // Mark as user scrolling
     isUserScrollingRef.current = true;
 
-    // Check if user scrolled back to bottom
+    // Check if user scrolled back to bottom (for autoscroll re-enabling)
     const nearBottom = isNearBottom(element);
     if (nearBottom) {
       shouldAutoScrollRef.current = true;
-      setIsScrolledUp(false);
     } else {
       shouldAutoScrollRef.current = false;
-      setIsScrolledUp(true);
     }
+
+    // Check if user scrolled far enough to show button (higher threshold)
+    const farFromBottom = isScrolledFarFromBottom(element);
+    setIsScrolledUp(farFromBottom);
 
     // Debounce: consider user done scrolling after 150ms of no scroll events
     userScrollTimeoutRef.current = setTimeout(() => {
       isUserScrollingRef.current = false;
     }, 150);
-  }, [isNearBottom]);
+  }, [isNearBottom, isScrolledFarFromBottom]);
 
   /**
    * Effect to handle autoscrolling when content changes
