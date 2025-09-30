@@ -5,6 +5,12 @@
   --foreground: #e7ecef;
   --accent: #34d399; /* emerald-400 */
   --muted: #94a3b8; /* slate-400 */
+
+  /* Safe area insets for mobile devices (notches, dynamic island, etc.) */
+  --sat: env(safe-area-inset-top);
+  --sab: env(safe-area-inset-bottom);
+  --sal: env(safe-area-inset-left);
+  --sar: env(safe-area-inset-right);
 }
 
 @theme inline {
@@ -108,4 +114,43 @@ body {
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background-color: #718096;
+}
+
+/* Safe area utilities for mobile devices */
+.pt-safe {
+  padding-top: max(1rem, var(--sat));
+}
+
+.pb-safe {
+  padding-bottom: max(1rem, var(--sab));
+}
+
+.pl-safe {
+  padding-left: max(1rem, var(--sal));
+}
+
+.pr-safe {
+  padding-right: max(1rem, var(--sar));
+}
+
+/* Mobile touch optimization */
+@media (max-width: 768px) {
+  /* Ensure minimum touch target size (44x44px for iOS, 48x48px for Android) */
+  button,
+  a,
+  [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Prevent text size adjustment on orientation change */
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  /* Improve tap highlighting */
+  * {
+    -webkit-tap-highlight-color: rgba(52, 211, 153, 0.2);
+  }
 }
