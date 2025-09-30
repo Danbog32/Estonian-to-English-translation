@@ -128,9 +128,10 @@ export default function ResizableSplit({
       ref={containerRef}
       className={`relative flex flex-col md:flex-row w-full h-full ${className}`}
     >
+      {/* On mobile, only show one panel at a time */}
       {showLeft && (
         <div
-          className={`relative flex h-full ${isSplit ? "" : "flex-1"}`}
+          className={`relative flex h-full ${isSplit ? "md:block" : "flex-1"} ${isSplit && showRight ? "hidden md:flex" : ""}`}
           style={leftStyle}
         >
           <div className="flex-1 min-w-0 h-full overflow-hidden">{left}</div>
@@ -154,8 +155,11 @@ export default function ResizableSplit({
         </div>
       )}
 
+      {/* On mobile, only show one panel at a time */}
       {showRight && (
-        <div className={`flex-1 min-w-0 flex h-full`}>
+        <div
+          className={`flex-1 min-w-0 flex h-full ${isSplit && showLeft ? "hidden md:flex" : ""}`}
+        >
           <div className="flex-1 min-w-0 h-full overflow-hidden">{right}</div>
         </div>
       )}

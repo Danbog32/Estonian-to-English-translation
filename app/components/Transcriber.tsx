@@ -13,7 +13,14 @@ import { Button } from "@heroui/button";
 export default function Transcriber() {
   const [transcript, setTranscript] = useState<string>("");
   const [translation, setTranslation] = useState<string>("");
-  const [viewMode, setViewMode] = useState<"left" | "split" | "right">("split");
+
+  // Default to "left" (Estonian) on mobile, "split" on desktop
+  const [viewMode, setViewMode] = useState<"left" | "split" | "right">(() => {
+    if (typeof window !== "undefined" && window.innerWidth < 768) {
+      return "left";
+    }
+    return "split";
+  });
 
   const pendingWordsRef = useRef<string[]>([]);
   const preparedChunksRef = useRef<string[]>([]);
@@ -301,6 +308,11 @@ export default function Transcriber() {
     return [transcript, asr.partialText].filter(Boolean).join(" ").trim();
   }, [transcript, asr.partialText]);
 
+  const enDisplay = useMemo(
+    () => formatTextForDisplay(translation),
+    [translation]
+  );
+
   // Render from stable list; prior words never change identity or content
   const enWords = enWordsRef.current;
 
@@ -385,6 +397,31 @@ export default function Transcriber() {
 
   return (
     <div className="relative h-screen w-full bg-[radial-gradient(1200px_600px_at_-10%_-10%,#0f172a_0%,#0b0f12_40%,#050607_80%)] text-neutral-100 overflow-hidden">
+      {/* Mobile View Switcher - Only visible on mobile */}
+      <div className="md:hidden fixed top-0 left-0 right-0 z-30 flex items-center justify-center pt-safe bg-gradient-to-b from-[#0f172a]/95 via-[#0b0f12]/90 to-transparent backdrop-blur-sm pb-2">
+        <div className="flex gap-1 rounded-full bg-white/5 p-1 border border-white/10 shadow-lg">
+          <button
+            onClick={() => setViewMode("left")}
+            className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 min-w-[100px] ${
+              viewMode === "left"
+                ? "bg-emerald-500 text-black shadow-lg shadow-emerald-500/30"
+                : "text-white/70 hover:text-white hover:bg-white/10"
+            }`}
+          >
+            Estonian
+          </button>
+          <button
+            onClick={() => setViewMode("right")}
+            className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 min-w-[100px] ${
+              viewMode === "right"
+                ? "bg-emerald-500 text-black shadow-lg shadow-emerald-500/30"
+                : "text-white/70 hover:text-white hover:bg-white/10"
+            }`}
+          >
+            English
+          </button>
+        </div>
+      </div>
       <ResizableSplit
         initialLeftFraction={0.5}
         minLeftPx={240}
@@ -393,8 +430,9 @@ export default function Transcriber() {
         viewMode={viewMode}
         onViewModeChange={setViewMode}
         left={
-          <section className="relative h-full flex flex-col px-3">
-            <div className="absolute left-3 top-4 sm:top-6 z-10">
+          <section className="relative h-full flex flex-col px-3 md:px-4">
+            {/* Desktop-only header controls */}
+            <div className="hidden md:block absolute left-3 md:left-4 top-4 sm:top-6 z-10">
               <HeaderControls
                 side="left"
                 mode={viewMode}
@@ -403,7 +441,7 @@ export default function Transcriber() {
             </div>
             <div
               ref={etScrollRef}
-              className="pb-26 !mt-12 sm:mt-2 flex-1 h-full overflow-y-auto pt-12 sm:pt-2 w-full text-left font-mono font-semibold uppercase tracking-[0.06em] leading-[1.08] text-[clamp(22px,5.6vw,42px)] custom-scrollbar"
+              className="pb-32 md:pb-26 !mt-16 md:!mt-12 sm:!mt-2 flex-1 h-full overflow-y-auto pt-4 md:pt-12 sm:md:pt-2 w-full text-left font-mono font-semibold uppercase tracking-[0.06em] leading-[1.08] text-[clamp(20px,5.2vw,42px)] md:text-[clamp(22px,5.6vw,42px)] custom-scrollbar"
             >
               {etDisplay ? (
                 <>
@@ -426,11 +464,11 @@ export default function Transcriber() {
             {etIsScrolledUp && (
               <button
                 onClick={etScrollToBottom}
-                className="absolute cursor-pointer bottom-4 left-1/2 transform -translate-x-1/2 z-20 flex items-center justify-center w-10 h-10 rounded-full bg-emerald-500/90 hover:bg-emerald-400 active:bg-emerald-500 backdrop-blur-sm shadow-lg transition-all duration-200 hover:scale-110 active:scale-95"
+                className="absolute cursor-pointer bottom-20 md:bottom-4 left-1/2 transform -translate-x-1/2 z-20 flex items-center justify-center w-12 h-12 md:w-10 md:h-10 rounded-full bg-emerald-500/90 hover:bg-emerald-400 active:bg-emerald-500 backdrop-blur-sm shadow-lg transition-all duration-200 hover:scale-110 active:scale-95"
                 aria-label="Scroll to bottom"
               >
                 <svg
-                  className="w-5 h-5 text-black"
+                  className="w-6 h-6 md:w-5 md:h-5 text-black"
                   fill="none"
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -445,8 +483,9 @@ export default function Transcriber() {
           </section>
         }
         right={
-          <section className="relative h-full flex flex-col px-3 bg-white/[0.01]">
-            <div className="absolute left-3 top-4 sm:top-6 z-10">
+          <section className="relative h-full flex flex-col px-3 md:px-4 bg-white/[0.01]">
+            {/* Desktop-only header controls */}
+            <div className="hidden md:block absolute left-3 md:left-4 top-4 sm:top-6 z-10">
               <HeaderControls
                 side="right"
                 mode={viewMode}
@@ -455,7 +494,7 @@ export default function Transcriber() {
             </div>
             <div
               ref={enScrollRef}
-              className="pb-26 !mt-12 sm:mt-2 flex-1 h-full overflow-y-auto pt-12 sm:pt-2 w-full text-left font-mono font-semibold uppercase tracking-[0.06em] leading-[1.08] text-[clamp(22px,5.6vw,42px)] custom-scrollbar"
+              className="pb-32 md:pb-26 !mt-16 md:!mt-12 sm:!mt-2 flex-1 h-full overflow-y-auto pt-4 md:pt-12 sm:md:pt-2 w-full text-left font-mono font-semibold uppercase tracking-[0.06em] leading-[1.08] text-[clamp(20px,5.2vw,42px)] md:text-[clamp(22px,5.6vw,42px)] custom-scrollbar"
             >
               {enWords.length > 0 ? (
                 <WordDisplay
@@ -474,11 +513,11 @@ export default function Transcriber() {
             {enIsScrolledUp && (
               <button
                 onClick={enScrollToBottom}
-                className="absolute cursor-pointer bottom-4 left-1/2 transform -translate-x-1/2 z-20 flex items-center justify-center w-10 h-10 rounded-full bg-emerald-500/90 hover:bg-emerald-400 active:bg-emerald-500 backdrop-blur-sm shadow-lg transition-all duration-200 hover:scale-110 active:scale-95"
+                className="absolute cursor-pointer bottom-20 md:bottom-4 left-1/2 transform -translate-x-1/2 z-20 flex items-center justify-center w-12 h-12 md:w-10 md:h-10 rounded-full bg-emerald-500/90 hover:bg-emerald-400 active:bg-emerald-500 backdrop-blur-sm shadow-lg transition-all duration-200 hover:scale-110 active:scale-95"
                 aria-label="Scroll to bottom"
               >
                 <svg
-                  className="w-5 h-5 text-black"
+                  className="w-6 h-6 md:w-5 md:h-5 text-black"
                   fill="none"
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -495,27 +534,27 @@ export default function Transcriber() {
       />
 
       {/* Floating Controls */}
-      <div className="pointer-events-none fixed inset-x-0 bottom-6 flex items-center justify-center">
-        <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-2 py-1.5 backdrop-blur-md shadow-lg">
+      <div className="pointer-events-none fixed inset-x-0 bottom-4 md:bottom-6 flex items-center justify-center pb-safe">
+        <div className="pointer-events-auto flex items-center gap-2 md:gap-2 rounded-full border border-white/10 bg-white/5 px-3 md:px-2 py-2 md:py-1.5 backdrop-blur-md shadow-lg">
           <span
-            className={`inline-flex h-2 w-2 rounded-full ${isBusy ? "bg-emerald-400" : "bg-white/30"}`}
+            className={`inline-flex h-2.5 w-2.5 md:h-2 md:w-2 rounded-full ${isBusy ? "bg-emerald-400" : "bg-white/30"}`}
           />
           <Button
-            className="rounded-full bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-500 text-black px-4 py-2 text-sm font-medium disabled:opacity-50"
+            className="rounded-full bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-500 text-black px-6 md:px-4 py-2.5 md:py-2 text-base md:text-sm font-medium disabled:opacity-50 min-h-[44px] md:min-h-0"
             onPress={handleStart}
             disabled={isBusy}
           >
             Start
           </Button>
           <Button
-            className="rounded-full bg-white/10 hover:bg-white/20 text-white px-4 py-2 text-sm font-medium disabled:opacity-50"
+            className="rounded-full bg-white/10 hover:bg-white/20 text-white px-6 md:px-4 py-2.5 md:py-2 text-base md:text-sm font-medium disabled:opacity-50 min-h-[44px] md:min-h-0"
             onPress={handleStop}
             disabled={!mic.isRecording && !asr.isStreamActive}
           >
             Stop
           </Button>
           <Button
-            className="rounded-full bg-white/0 hover:bg-white/10 text-white/80 px-3 py-2 text-sm"
+            className="rounded-full bg-white/0 hover:bg-white/10 text-white/80 px-5 md:px-3 py-2.5 md:py-2 text-base md:text-sm min-h-[44px] md:min-h-0"
             onPress={handleClear}
           >
             Clear
@@ -525,7 +564,7 @@ export default function Transcriber() {
 
       {/* Errors */}
       {(asr.error || mic.error) && (
-        <div className="fixed left-1/2 top-4 -translate-x-1/2 rounded-md bg-red-500/10 text-red-300 px-3 py-1.5 text-sm border border-red-500/20">
+        <div className="fixed left-1/2 top-20 md:top-4 -translate-x-1/2 rounded-md bg-red-500/10 text-red-300 px-4 py-2 md:px-3 md:py-1.5 text-base md:text-sm border border-red-500/20 max-w-[90vw] z-40">
           {asr.error || mic.error}
         </div>
       )}
