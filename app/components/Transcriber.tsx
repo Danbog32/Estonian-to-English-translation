@@ -75,36 +75,36 @@ export default function Transcriber() {
       .trim();
   }, []);
 
-  const ingestEtText = useCallback(
-    (text: string, flushRemainder: boolean) => {
-      if (!text) {
-        if (flushRemainder && pendingWordsRef.current.length) {
-          preparedChunksRef.current.push(pendingWordsRef.current.join(" "));
-          pendingWordsRef.current = [];
-        }
-        return;
-      }
-      const cleaned = normalize(text);
-      if (!cleaned) {
-        if (flushRemainder && pendingWordsRef.current.length) {
-          preparedChunksRef.current.push(pendingWordsRef.current.join(" "));
-          pendingWordsRef.current = [];
-        }
-        return;
-      }
-      const newWords = cleaned.split(/\s+/);
-      pendingWordsRef.current.push(...newWords);
-      while (pendingWordsRef.current.length >= 7) {
-        const chunkWords = pendingWordsRef.current.splice(0, 6);
-        preparedChunksRef.current.push(chunkWords.join(" "));
-      }
-      if (flushRemainder && pendingWordsRef.current.length) {
-        preparedChunksRef.current.push(pendingWordsRef.current.join(" "));
-        pendingWordsRef.current = [];
-      }
-    },
-    [normalize]
-  );
+  // const ingestEtText = useCallback(
+  //   (text: string, flushRemainder: boolean) => {
+  //     if (!text) {
+  //       if (flushRemainder && pendingWordsRef.current.length) {
+  //         preparedChunksRef.current.push(pendingWordsRef.current.join(" "));
+  //         pendingWordsRef.current = [];
+  //       }
+  //       return;
+  //     }
+  //     const cleaned = normalize(text);
+  //     if (!cleaned) {
+  //       if (flushRemainder && pendingWordsRef.current.length) {
+  //         preparedChunksRef.current.push(pendingWordsRef.current.join(" "));
+  //         pendingWordsRef.current = [];
+  //       }
+  //       return;
+  //     }
+  //     const newWords = cleaned.split(/\s+/);
+  //     pendingWordsRef.current.push(...newWords);
+  //     while (pendingWordsRef.current.length >= 7) {
+  //       const chunkWords = pendingWordsRef.current.splice(0, 6);
+  //       preparedChunksRef.current.push(chunkWords.join(" "));
+  //     }
+  //     if (flushRemainder && pendingWordsRef.current.length) {
+  //       preparedChunksRef.current.push(pendingWordsRef.current.join(" "));
+  //       pendingWordsRef.current = [];
+  //     }
+  //   },
+  //   [normalize]
+  // );
 
   const ingestPartialDelta = useCallback(
     (partialText: string) => {
@@ -301,11 +301,6 @@ export default function Transcriber() {
     return [transcript, asr.partialText].filter(Boolean).join(" ").trim();
   }, [transcript, asr.partialText]);
 
-  const enDisplay = useMemo(
-    () => formatTextForDisplay(translation),
-    [translation]
-  );
-
   // Render from stable list; prior words never change identity or content
   const enWords = enWordsRef.current;
 
@@ -347,7 +342,6 @@ export default function Transcriber() {
     return () => {
       if (revealRafRef.current) cancelAnimationFrame(revealRafRef.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enWords.length]);
 
   const splitForHighlight = useCallback((text: string) => {

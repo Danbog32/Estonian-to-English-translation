@@ -184,7 +184,8 @@ export function useAsrWebSocket(options?: UseAsrWebSocketOptions) {
       setError(message);
       options?.onError?.(message);
     }
-  }, [options, requestedNBest, resetState, url]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestedNBest, resetState, url]);
 
   const ensureSocketOpen = useCallback(() => {
     const ws = wsRef.current;
