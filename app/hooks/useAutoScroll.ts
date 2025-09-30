@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 
 interface UseAutoScrollOptions {
   /**
@@ -21,7 +21,7 @@ interface UseAutoScrollOptions {
  * A robust autoscroll hook that automatically scrolls to bottom when content changes,
  * but allows users to scroll up and read without interruption.
  *
- * @returns A ref to attach to the scrollable element
+ * @returns Object containing scrollRef, isScrolledUp state, and scrollToBottom function
  */
 export function useAutoScroll<T extends HTMLElement>({
   content,
@@ -32,6 +32,7 @@ export function useAutoScroll<T extends HTMLElement>({
   const isUserScrollingRef = useRef(false);
   const userScrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const shouldAutoScrollRef = useRef(true);
+  const [isScrolledUp, setIsScrolledUp] = useState(false);
 
   /**
    * Check if the element is scrolled near the bottom
@@ -73,10 +74,13 @@ export function useAutoScroll<T extends HTMLElement>({
     isUserScrollingRef.current = true;
 
     // Check if user scrolled back to bottom
-    if (isNearBottom(element)) {
+    const nearBottom = isNearBottom(element);
+    if (nearBottom) {
       shouldAutoScrollRef.current = true;
+      setIsScrolledUp(false);
     } else {
       shouldAutoScrollRef.current = false;
+      setIsScrolledUp(true);
     }
 
     // Debounce: consider user done scrolling after 150ms of no scroll events
@@ -126,5 +130,9 @@ export function useAutoScroll<T extends HTMLElement>({
     shouldAutoScrollRef.current = true;
   }, []);
 
-  return scrollRef;
+  return {
+    scrollRef,
+    isScrolledUp,
+    scrollToBottom,
+  };
 }

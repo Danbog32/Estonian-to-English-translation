@@ -367,13 +367,21 @@ export default function Transcriber() {
   // Note: left (Estonian) uses the split highlighting; right (English) renders per-word for staggered animation
 
   // Autoscroll refs for both containers
-  const etScrollRef = useAutoScroll<HTMLDivElement>({
+  const {
+    scrollRef: etScrollRef,
+    isScrolledUp: etIsScrolledUp,
+    scrollToBottom: etScrollToBottom,
+  } = useAutoScroll<HTMLDivElement>({
     content: etDisplay,
     threshold: 50,
     enabled: true,
   });
 
-  const enScrollRef = useAutoScroll<HTMLDivElement>({
+  const {
+    scrollRef: enScrollRef,
+    isScrolledUp: enIsScrolledUp,
+    scrollToBottom: enScrollToBottom,
+  } = useAutoScroll<HTMLDivElement>({
     content: enDisplay,
     threshold: 50,
     enabled: true,
@@ -418,6 +426,26 @@ export default function Transcriber() {
                 </span>
               )}
             </div>
+            {/* Scroll to bottom button */}
+            {etIsScrolledUp && (
+              <button
+                onClick={etScrollToBottom}
+                className="absolute cursor-pointer bottom-4 left-1/2 transform -translate-x-1/2 z-20 flex items-center justify-center w-10 h-10 rounded-full bg-emerald-500/90 hover:bg-emerald-400 active:bg-emerald-500 backdrop-blur-sm shadow-lg transition-all duration-200 hover:scale-110 active:scale-95"
+                aria-label="Scroll to bottom"
+              >
+                <svg
+                  className="w-5 h-5 text-black"
+                  fill="none"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2.5"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path d="M19 14l-7 7m0 0l-7-7m7 7V3"></path>
+                </svg>
+              </button>
+            )}
           </section>
         }
         right={
@@ -446,6 +474,26 @@ export default function Transcriber() {
                 </span>
               )}
             </div>
+            {/* Scroll to bottom button */}
+            {enIsScrolledUp && (
+              <button
+                onClick={enScrollToBottom}
+                className="absolute cursor-pointer bottom-4 left-1/2 transform -translate-x-1/2 z-20 flex items-center justify-center w-10 h-10 rounded-full bg-emerald-500/90 hover:bg-emerald-400 active:bg-emerald-500 backdrop-blur-sm shadow-lg transition-all duration-200 hover:scale-110 active:scale-95"
+                aria-label="Scroll to bottom"
+              >
+                <svg
+                  className="w-5 h-5 text-black"
+                  fill="none"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2.5"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path d="M19 14l-7 7m0 0l-7-7m7 7V3"></path>
+                </svg>
+              </button>
+            )}
           </section>
         }
       />
