@@ -39,7 +39,7 @@ export default function ResizableSplit({
 
   // Use external view mode if provided, otherwise use internal state
   const viewMode = externalViewMode ?? internalViewMode;
-  const setViewMode = onViewModeChange ?? setInternalViewMode;
+  const _setViewMode = onViewModeChange ?? setInternalViewMode;
 
   const onDrag = useCallback(
     (clientX: number) => {

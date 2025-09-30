@@ -60,7 +60,7 @@ export async function GET() {
       { status: "healthy", message: "Translation backend is responsive." },
       { status: 200 }
     );
-  } catch (e) {
+  } catch {
     return NextResponse.json(
       { status: "unreachable", message: "Failed to contact backend." },
       { status: 200 }
