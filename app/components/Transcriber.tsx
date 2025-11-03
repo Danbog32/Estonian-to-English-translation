@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Button } from "@heroui/button";
 import { useAsrWebSocket } from "../hooks/useAsrWebSocket";
 import { useMicrophoneRecorder } from "../hooks/useMicrophoneRecorder";
 import { useAutoScroll } from "../hooks/useAutoScroll";
@@ -8,7 +9,38 @@ import { formatTextForDisplay } from "../utils/textFormatting";
 import ResizableSplit from "./ResizableSplit";
 import HeaderControls from "./HeaderControls";
 import WordDisplay from "./WordDisplay";
-import { Button } from "@heroui/button";
+
+const LANGUAGE_CONFIG = {
+  en: {
+    code: "en",
+    label: "English",
+    systemPrompt:
+      "You are a professional Estonian-to-English simultaneous interpreter. Translate the following conversations into English with maximal faithfulness. Do not paraphrase, summarize, add, or omit information. Preserve tone, tense, named entities, and numbers exactly as they appear. For short or ambiguous fragments, prefer a literal translation. Return only the translation.",
+    placeholder: "English translation will appear here…",
+  },
+  ru: {
+    code: "ru",
+    label: "Russian",
+    systemPrompt:
+      "You are a professional Estonian-to-Ukranian simultaneous interpreter. Translate the following conversations into Russian with maximal faithfulness. Do not paraphrase, summarize, add, or omit information. Preserve tone, tense, named entities, and numbers exactly as they appear. For short or ambiguous fragments, prefer a literal translation. Return only the translation.",
+    placeholder: "Russian translation will appear here…",
+  },
+} as const;
+
+type LanguageConfig = typeof LANGUAGE_CONFIG;
+type TargetLanguage = keyof LanguageConfig;
+
+const LANGUAGE_OPTIONS = Object.values(LANGUAGE_CONFIG).map(
+  ({ code, label }) => ({
+    code,
+    label,
+  })
+);
+
+type HistoryEntry = {
+  source: string;
+  target: string;
+};
 
 export default function Transcriber() {
   const [transcript, setTranscript] = useState<string>("");
@@ -22,17 +54,15 @@ export default function Transcriber() {
     return "split";
   });
 
+  const [translateLang, setTranslateLang] = useState<TargetLanguage>("en");
+
   const pendingWordsRef = useRef<string[]>([]);
   const preparedChunksRef = useRef<string[]>([]);
   const isSendingRef = useRef(false);
-  // Track current ASR segment words and how many have been emitted into chunks
   const currentSegmentWordsRef = useRef<string[]>([]);
   const emittedInSegmentRef = useRef(0);
-  // Track the number of words in the most recently appended English translation batch
-  const lastEnBatchSizeRef = useRef(0);
-  // Stable word list for English rendering; only appends to avoid retokenizing prior words
-  const enWordsRef = useRef<string[]>([]);
-  // Highlight state: during reveal, only the newest appeared word is emerald
+  const lastTargetBatchSizeRef = useRef(0);
+  const targetWordsRef = useRef<string[]>([]);
   const [revealActiveIndex, setRevealActiveIndex] = useState<number | null>(
     null
   );
@@ -41,11 +71,9 @@ export default function Transcriber() {
   const revealRafRef = useRef<number | null>(null);
   const REVEAL_DELAY_MS = 120;
 
-  // Local translation chat history (mirrors translation.md): pairs of Estonian input and English output
-  const historyRef = useRef<Array<{ et: string; en: string }>>([]);
+  // Local translation chat history: pairs of Estonian input and target output
+  const historyRef = useRef<HistoryEntry[]>([]);
   const HISTORY_MAX = 10;
-  const SYSTEM_PROMPT =
-    "You are a professional Estonian-to-English simultaneous interpreter. Translate the following conversations into English with maximal faithfulness. Do not paraphrase, summarize, add, or omit information. Preserve tone, tense, named entities, and numbers exactly as they appear. For short or ambiguous fragments, prefer a literal translation. Return only the translation.";
 
   const appendText = useCallback((text: string) => {
     if (!text) return;
@@ -54,11 +82,10 @@ export default function Transcriber() {
 
   const appendTranslation = useCallback((text: string) => {
     if (!text) return;
-    // Tokenize and append only the new words into a stable list
     const newWords = text.trim().split(/\s+/).filter(Boolean);
-    lastEnBatchSizeRef.current = newWords.length;
+    lastTargetBatchSizeRef.current = newWords.length;
     if (newWords.length) {
-      enWordsRef.current.push(...newWords);
+      targetWordsRef.current.push(...newWords);
     }
     setTranslation((prev) => {
       const next = prev ? prev + " " + text : text;
@@ -69,10 +96,20 @@ export default function Transcriber() {
   const resetSessionState = useCallback(() => {
     setTranscript("");
     setTranslation("");
+    setRevealActiveIndex(null);
     pendingWordsRef.current = [];
     preparedChunksRef.current = [];
     historyRef.current = [];
-    enWordsRef.current = [];
+    targetWordsRef.current = [];
+    lastTargetBatchSizeRef.current = 0;
+    currentSegmentWordsRef.current = [];
+    emittedInSegmentRef.current = 0;
+    revealBaseIndexRef.current = 0;
+    revealStartTimeRef.current = 0;
+    if (revealRafRef.current) {
+      cancelAnimationFrame(revealRafRef.current);
+      revealRafRef.current = null;
+    }
   }, []);
 
   const normalize = useCallback((text: string) => {
@@ -81,37 +118,6 @@ export default function Transcriber() {
       .replace(/\s+/g, " ")
       .trim();
   }, []);
-
-  // const ingestEtText = useCallback(
-  //   (text: string, flushRemainder: boolean) => {
-  //     if (!text) {
-  //       if (flushRemainder && pendingWordsRef.current.length) {
-  //         preparedChunksRef.current.push(pendingWordsRef.current.join(" "));
-  //         pendingWordsRef.current = [];
-  //       }
-  //       return;
-  //     }
-  //     const cleaned = normalize(text);
-  //     if (!cleaned) {
-  //       if (flushRemainder && pendingWordsRef.current.length) {
-  //         preparedChunksRef.current.push(pendingWordsRef.current.join(" "));
-  //         pendingWordsRef.current = [];
-  //       }
-  //       return;
-  //     }
-  //     const newWords = cleaned.split(/\s+/);
-  //     pendingWordsRef.current.push(...newWords);
-  //     while (pendingWordsRef.current.length >= 7) {
-  //       const chunkWords = pendingWordsRef.current.splice(0, 6);
-  //       preparedChunksRef.current.push(chunkWords.join(" "));
-  //     }
-  //     if (flushRemainder && pendingWordsRef.current.length) {
-  //       preparedChunksRef.current.push(pendingWordsRef.current.join(" "));
-  //       pendingWordsRef.current = [];
-  //     }
-  //   },
-  //   [normalize]
-  // );
 
   const ingestPartialDelta = useCallback(
     (partialText: string) => {
@@ -137,20 +143,24 @@ export default function Transcriber() {
   const drainQueue = useCallback(async () => {
     if (isSendingRef.current) return;
     isSendingRef.current = true;
-    // console.log("[TRANSLATE] drainQueue", sessionId);
     try {
-      // console.log("[TRANSLATE] drainQueue", sessionId);
       while (preparedChunksRef.current.length) {
         const chunk = preparedChunksRef.current.shift();
         if (!chunk) break;
-        // Build messages per translation.md: system, then alternating user/assistant from history, then current user window
+
+        const language = LANGUAGE_CONFIG[translateLang];
         const messages: Array<{
           role: "system" | "user" | "assistant";
           content: string;
-        }> = [{ role: "system", content: SYSTEM_PROMPT }];
+        }> = [
+          {
+            role: "system",
+            content: language.systemPrompt,
+          },
+        ];
         for (const pair of historyRef.current) {
-          messages.push({ role: "user", content: pair.et });
-          messages.push({ role: "assistant", content: pair.en });
+          messages.push({ role: "user", content: pair.source });
+          messages.push({ role: "assistant", content: pair.target });
         }
         messages.push({ role: "user", content: chunk });
 
@@ -159,19 +169,18 @@ export default function Transcriber() {
           max_tokens: 256,
           temperature: 0.0,
         } as const;
+
         try {
           const resp = await fetch("/api/translate", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
           });
-          console.log("[TRANSLATE] payload", payload);
           const data = await resp.json();
           const translated: string = data?.translated_text ?? "";
-          console.log("[TRANSLATE] translated", translated);
           if (translated) {
             appendTranslation(translated);
-            historyRef.current.push({ et: chunk, en: translated });
+            historyRef.current.push({ source: chunk, target: translated });
             if (historyRef.current.length > HISTORY_MAX) {
               historyRef.current.splice(
                 0,
@@ -180,13 +189,13 @@ export default function Transcriber() {
             }
           }
         } catch {
-          // Best-effort: drop this window from history on failure
+          // On failure, drop this window from history and continue
         }
       }
     } finally {
       isSendingRef.current = false;
     }
-  }, [appendTranslation]);
+  }, [appendTranslation, translateLang]);
 
   const asr = useAsrWebSocket({
     nBest: 1,
@@ -219,7 +228,6 @@ export default function Transcriber() {
         }
       }
       void drainQueue();
-      // Reset per-segment counters for next ASR segment
       emittedInSegmentRef.current = 0;
       currentSegmentWordsRef.current = [];
     },
@@ -250,16 +258,11 @@ export default function Transcriber() {
         pendingWordsRef.current = [];
       }
       void drainQueue();
-      // Reset per-segment counters
       emittedInSegmentRef.current = 0;
       currentSegmentWordsRef.current = [];
     },
     onError: () => {},
     onStreamStarted: () => {
-      // When stream is confirmed, if mic is already recording we can proceed
-      // If mic is not yet started, it will start shortly via timeout in handleStart
-      console.log("[ASR] onStreamStarted");
-      // Ensure counters are reset at the start of a fresh stream
       emittedInSegmentRef.current = 0;
       currentSegmentWordsRef.current = [];
     },
@@ -269,9 +272,6 @@ export default function Transcriber() {
     targetSampleRate: 16000,
     targetChunkDurationMs: 100,
     onChunk: (pcm16) => {
-      // Send audio unconditionally; internal sender checks socket state.
-      // Avoid gating on asr.isStreamActive here to prevent stale-closure issues
-      // that can block audio from ever being sent.
       asr.sendAudio(pcm16);
     },
     onError: () => {},
@@ -282,8 +282,29 @@ export default function Transcriber() {
     [mic.isRecording, asr.isStreamActive]
   );
 
+  const stopStream = useCallback(
+    async ({ flush = true }: { flush?: boolean } = {}) => {
+      if (!mic.isRecording && !asr.isStreamActive) return;
+      try {
+        await mic.stop();
+      } catch {
+        /* noop */
+      }
+      if (flush) {
+        setTimeout(() => {
+          asr.flush();
+        }, 100);
+      } else {
+        setTimeout(() => {
+          asr.endStream();
+          asr.close();
+        }, 0);
+      }
+    },
+    [asr, mic]
+  );
+
   const handleStart = useCallback(() => {
-    // Start a stream (connects if needed); begin mic shortly after
     resetSessionState();
     asr.startStream();
     setTimeout(() => {
@@ -291,44 +312,49 @@ export default function Transcriber() {
     }, 150);
   }, [asr, mic, resetSessionState]);
 
-  const handleStop = useCallback(async () => {
-    await mic.stop();
-    // Give a brief moment for last audio chunk to flush into onChunk
-    setTimeout(() => {
-      asr.flush();
-    }, 100);
-  }, [asr, mic]);
+  const handleStop = useCallback(() => {
+    void stopStream({ flush: true });
+  }, [stopStream]);
+
+  const handleLanguageChange = useCallback(
+    async (lang: TargetLanguage) => {
+      if (lang === translateLang) return;
+      if (isBusy) return;
+      await stopStream({ flush: false });
+      resetSessionState();
+      setTranslateLang(lang);
+    },
+    [isBusy, resetSessionState, stopStream, translateLang]
+  );
 
   const handleClear = useCallback(() => {
     resetSessionState();
   }, [resetSessionState]);
 
-  // Build display strings
+  const activeLanguage = LANGUAGE_CONFIG[translateLang];
+
   const etDisplay = useMemo(() => {
     return [transcript, asr.partialText].filter(Boolean).join(" ").trim();
   }, [transcript, asr.partialText]);
 
-  const enDisplay = useMemo(
+  const targetDisplay = useMemo(
     () => formatTextForDisplay(translation),
     [translation]
   );
 
-  // Render from stable list; prior words never change identity or content
-  const enWords = enWordsRef.current;
+  const targetWords = targetWordsRef.current;
 
-  // Calculate fade start index for new words
   const fadeStart = useMemo(() => {
-    return Math.max(0, enWords.length - lastEnBatchSizeRef.current);
-  }, [enWords.length]);
+    return Math.max(0, targetWords.length - lastTargetBatchSizeRef.current);
+  }, [targetWords.length]);
 
-  // Drive active emerald highlight during staggered word reveal
   useEffect(() => {
-    const batchSize = lastEnBatchSizeRef.current;
-    if (!batchSize || enWords.length === 0) {
+    const batchSize = lastTargetBatchSizeRef.current;
+    if (!batchSize || targetWords.length === 0) {
       setRevealActiveIndex(null);
       return;
     }
-    const base = Math.max(0, enWords.length - batchSize);
+    const base = Math.max(0, targetWords.length - batchSize);
     revealBaseIndexRef.current = base;
     revealStartTimeRef.current = performance.now();
     if (revealRafRef.current) cancelAnimationFrame(revealRafRef.current);
@@ -343,10 +369,9 @@ export default function Transcriber() {
         revealRafRef.current = requestAnimationFrame(step);
       } else {
         revealRafRef.current = null;
-        // Keep the final word emerald briefly; then revert to last-two rule
         setTimeout(() => {
           setRevealActiveIndex(null);
-          lastEnBatchSizeRef.current = 0;
+          lastTargetBatchSizeRef.current = 0;
         }, REVEAL_DELAY_MS);
       }
     };
@@ -354,7 +379,7 @@ export default function Transcriber() {
     return () => {
       if (revealRafRef.current) cancelAnimationFrame(revealRafRef.current);
     };
-  }, [enWords.length]);
+  }, [targetWords.length]);
 
   const splitForHighlight = useCallback((text: string) => {
     const words = text.trim().split(/\s+/).filter(Boolean);
@@ -370,9 +395,7 @@ export default function Transcriber() {
     () => splitForHighlight(etDisplay),
     [etDisplay, splitForHighlight]
   );
-  // Note: left (Estonian) uses the split highlighting; right (English) renders per-word for staggered animation
 
-  // Autoscroll refs for both containers
   const {
     scrollRef: etScrollRef,
     isScrolledUp: etIsScrolledUp,
@@ -385,11 +408,11 @@ export default function Transcriber() {
   });
 
   const {
-    scrollRef: enScrollRef,
-    isScrolledUp: enIsScrolledUp,
-    scrollToBottom: enScrollToBottom,
+    scrollRef: targetScrollRef,
+    isScrolledUp: targetIsScrolledUp,
+    scrollToBottom: targetScrollToBottom,
   } = useAutoScroll<HTMLDivElement>({
-    content: enDisplay,
+    content: targetDisplay,
     threshold: 50,
     buttonThreshold: 200,
     enabled: true,
@@ -397,31 +420,36 @@ export default function Transcriber() {
 
   return (
     <div className="relative h-screen w-full bg-[radial-gradient(1200px_600px_at_-10%_-10%,#0f172a_0%,#0b0f12_40%,#050607_80%)] text-neutral-100 overflow-hidden">
-      {/* Mobile View Switcher - Only visible on mobile */}
-      <div className="md:hidden fixed top-0 left-0 right-0 z-30 flex items-center justify-center pt-safe bg-gradient-to-b from-[#0f172a]/95 via-[#0b0f12]/90 to-transparent backdrop-blur-sm pb-2">
-        <div className="flex gap-1 rounded-full bg-white/5 p-1 border border-white/10 shadow-lg">
-          <button
-            onClick={() => setViewMode("left")}
-            className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 min-w-[100px] ${
-              viewMode === "left"
-                ? "bg-emerald-500 text-black shadow-lg shadow-emerald-500/30"
-                : "text-white/70 hover:text-white hover:bg-white/10"
-            }`}
-          >
-            Estonian
-          </button>
-          <button
-            onClick={() => setViewMode("right")}
-            className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 min-w-[100px] ${
-              viewMode === "right"
-                ? "bg-emerald-500 text-black shadow-lg shadow-emerald-500/30"
-                : "text-white/70 hover:text-white hover:bg-white/10"
-            }`}
-          >
-            English
-          </button>
+      {/* Mobile View Switcher & Language Selector */}
+      <div className="md:hidden fixed top-0 left-0 right-0 z-30 flex items-center justify-center pt-safe bg-gradient-to-b from-[#0f172a]/95 via-[#0b0f12]/90 to-transparent backdrop-blur-sm pb-3">
+        <div className="flex w-full flex-col items-center gap-3 px-4">
+          <div className="flex gap-1 rounded-full bg-white/5 p-1 border border-white/10 shadow-lg">
+            <button
+              onClick={() => setViewMode("left")}
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 min-w-[100px] ${
+                viewMode === "left"
+                  ? "bg-emerald-500 text-black shadow-lg shadow-emerald-500/30"
+                  : "text-white/70 hover:text-white hover:bg-white/10"
+              }`}
+            >
+              Estonian
+            </button>
+            <button
+              onClick={() => setViewMode("right")}
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 min-w-[100px] ${
+                viewMode === "right"
+                  ? "bg-emerald-500 text-black shadow-lg shadow-emerald-500/30"
+                  : "text-white/70 hover:text-white hover:bg-white/10"
+              }`}
+            >
+              {activeLanguage.label}
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* Desktop language selector */}
+
       <ResizableSplit
         initialLeftFraction={0.5}
         minLeftPx={240}
@@ -431,17 +459,17 @@ export default function Transcriber() {
         onViewModeChange={setViewMode}
         left={
           <section className="relative h-full flex flex-col px-3 md:px-4">
-            {/* Desktop-only header controls */}
             <div className="hidden md:block absolute left-3 md:left-4 top-4 sm:top-6 z-10">
               <HeaderControls
                 side="left"
+                label="Estonian"
                 mode={viewMode}
                 onChange={setViewMode}
               />
             </div>
             <div
               ref={etScrollRef}
-              className="pb-32 md:pb-26 !mt-16 md:!mt-12 sm:!mt-2 flex-1 h-full overflow-y-auto pt-4 md:pt-12 sm:md:pt-2 w-full text-left font-mono font-semibold uppercase tracking-[0.06em] leading-[1.08] text-[clamp(20px,5.2vw,42px)] md:text-[clamp(22px,5.6vw,42px)] custom-scrollbar"
+              className="pb-32 md:pb-26 !mt-20 md:!mt-12 sm:!mt-2 flex-1 h-full overflow-y-auto pt-4 md:pt-12 sm:md:pt-2 w-full text-left font-mono font-semibold uppercase tracking-[0.06em] leading-[1.08] text-[clamp(20px,5.2vw,42px)] md:text-[clamp(22px,5.6vw,42px)] custom-scrollbar"
             >
               {etDisplay ? (
                 <>
@@ -460,7 +488,6 @@ export default function Transcriber() {
                 </span>
               )}
             </div>
-            {/* Scroll to bottom button */}
             {etIsScrolledUp && (
               <button
                 onClick={etScrollToBottom}
@@ -484,35 +511,37 @@ export default function Transcriber() {
         }
         right={
           <section className="relative h-full flex flex-col px-3 md:px-4 bg-white/[0.01]">
-            {/* Desktop-only header controls */}
             <div className="hidden md:block absolute left-3 md:left-4 top-4 sm:top-6 z-10">
               <HeaderControls
                 side="right"
+                label={activeLanguage.label}
                 mode={viewMode}
                 onChange={setViewMode}
+                currentLang={translateLang}
+                onLanguageChange={handleLanguageChange}
+                disabled={isBusy}
               />
             </div>
             <div
-              ref={enScrollRef}
-              className="pb-32 md:pb-26 !mt-16 md:!mt-12 sm:!mt-2 flex-1 h-full overflow-y-auto pt-4 md:pt-12 sm:md:pt-2 w-full text-left font-mono font-semibold uppercase tracking-[0.06em] leading-[1.08] text-[clamp(20px,5.2vw,42px)] md:text-[clamp(22px,5.6vw,42px)] custom-scrollbar"
+              ref={targetScrollRef}
+              className="pb-32 md:pb-26 !mt-20 md:!mt-12 sm:!mt-2 flex-1 h-full overflow-y-auto pt-4 md:pt-12 sm:md:pt-2 w-full text-left font-mono font-semibold uppercase tracking-[0.06em] leading-[1.08] text-[clamp(20px,5.2vw,42px)] md:text-[clamp(22px,5.6vw,42px)] custom-scrollbar"
             >
-              {enWords.length > 0 ? (
+              {targetWords.length > 0 ? (
                 <WordDisplay
-                  words={enWords}
+                  words={targetWords}
                   revealActiveIndex={revealActiveIndex}
                   fadeStart={fadeStart}
                   revealDelayMs={REVEAL_DELAY_MS}
                 />
               ) : (
                 <span className="text-white/30">
-                  English translation will appear here…
+                  {activeLanguage.placeholder}
                 </span>
               )}
             </div>
-            {/* Scroll to bottom button */}
-            {enIsScrolledUp && (
+            {targetIsScrolledUp && (
               <button
-                onClick={enScrollToBottom}
+                onClick={targetScrollToBottom}
                 className="absolute cursor-pointer bottom-20 md:bottom-4 left-1/2 transform -translate-x-1/2 z-20 flex items-center justify-center w-12 h-12 md:w-10 md:h-10 rounded-full bg-emerald-500/90 hover:bg-emerald-400 active:bg-emerald-500 backdrop-blur-sm shadow-lg transition-all duration-200 hover:scale-110 active:scale-95"
                 aria-label="Scroll to bottom"
               >
@@ -533,7 +562,6 @@ export default function Transcriber() {
         }
       />
 
-      {/* Floating Controls */}
       <div className="pointer-events-none fixed inset-x-0 bottom-4 md:bottom-6 flex items-center justify-center pb-safe">
         <div className="pointer-events-auto flex items-center gap-2 md:gap-2 rounded-full border border-white/10 bg-white/5 px-3 md:px-2 py-2 md:py-1.5 backdrop-blur-md shadow-lg">
           <span
@@ -562,7 +590,6 @@ export default function Transcriber() {
         </div>
       </div>
 
-      {/* Errors */}
       {(asr.error || mic.error) && (
         <div className="fixed left-1/2 top-20 md:top-4 -translate-x-1/2 rounded-md bg-red-500/10 text-red-300 px-4 py-2 md:px-3 md:py-1.5 text-base md:text-sm border border-red-500/20 max-w-[90vw] z-40">
           {asr.error || mic.error}
