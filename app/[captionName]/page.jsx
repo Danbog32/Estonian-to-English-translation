@@ -28,29 +28,40 @@ export default function LiveCaptionsPage() {
   }, [captionName]);
 
   return (
-    <div className="bg-gray-800 flex flex-col items-center min-h-screen">
-      <div className="flex flex-col items-center w-full max-w-[1200px] text-white p-8">
+    <div className="relative h-screen w-full bg-[radial-gradient(1200px_600px_at_-10%_-10%,#0f172a_0%,#0b0f12_40%,#050607_80%)] text-neutral-100 overflow-hidden">
+      <div className="relative h-full flex flex-col items-center justify-center w-full max-w-[1200px] mx-auto px-4 md:px-8 pt-safe pb-safe">
         {/* Header Section */}
-        <div className="w-full flex items-center justify-center mb-6">
+        <div className="w-full flex items-center justify-center mb-6 md:mb-8">
           {/* Logo */}
           <Image
-            src="/images/TalTech_logo.png" // Replace with your logo path
-            alt="Logo"
+            src="/TalTech_logo.png"
+            alt="TalTech Logo"
             width={100}
             height={70}
             className="mr-4"
+            priority
           />
           {/* Title */}
-          <h1 className="sm:text-3xl md:text-2xl text-xl font-bold text-center">
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-center text-white/90 font-mono uppercase tracking-[0.06em]">
             Live Captions
           </h1>
         </div>
 
         {/* Caption Text */}
-        <div className="bg-white text-black p-6 rounded-md w-full">
-          <pre className="whitespace-pre-wrap break-words text-lg leading-relaxed">
-            {captionText}
-          </pre>
+        <div className="relative w-full flex-1 flex flex-col bg-white/[0.01] border border-white/10 rounded-lg backdrop-blur-sm shadow-lg overflow-hidden">
+          <div className="flex-1 overflow-y-auto p-6 md:p-8 custom-scrollbar">
+            {captionText ? (
+              <pre className="whitespace-pre-wrap break-words font-mono font-semibold uppercase tracking-[0.06em] leading-[1.08] text-[clamp(20px,5.2vw,42px)] md:text-[clamp(22px,5.6vw,42px)] text-white/90">
+                {captionText}
+              </pre>
+            ) : (
+              <div className="flex items-center justify-center h-full">
+                <span className="text-white/30 font-mono uppercase tracking-[0.06em] text-lg">
+                  Waiting for captions…
+                </span>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

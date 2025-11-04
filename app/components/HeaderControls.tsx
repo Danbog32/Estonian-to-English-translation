@@ -77,7 +77,8 @@ function HeaderControlsBase({
           disabled={disabled}
         />
       )}
-      <FirebaseApiSwitchComponent />
+
+      {side === "right" && <FirebaseApiSwitchComponent />}
     </div>
   );
 }
