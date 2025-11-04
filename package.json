@@ -12,15 +12,18 @@
     "@heroui/button": "^2.2.26",
     "@heroui/dropdown": "^2.3.27",
     "@heroui/input": "^2.4.27",
+    "@heroui/modal": "^2.2.24",
     "@heroui/scroll-shadow": "^2.3.17",
     "@heroui/select": "^2.4.28",
     "@heroui/system": "^2.4.23",
     "@heroui/theme": "^2.4.23",
     "@vercel/analytics": "^1.5.0",
+    "firebase": "^12.5.0",
     "framer-motion": "^12.23.24",
     "next": "15.5.3",
     "react": "19.1.0",
-    "react-dom": "19.1.0"
+    "react-dom": "19.1.0",
+    "react-qr-code": "^2.0.18"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
