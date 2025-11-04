@@ -90,7 +90,7 @@ export default function ServerStatus() {
             className={`relative inline-flex h-3.5 w-3.5 rounded-full ${ui.color}`}
           />
         </span>
-        <div className="flex min-w-[16rem] flex-col">
+        <div className="flex w-[16rem] flex-col">
           <div className="flex items-center gap-2">
             {ui.icon === "check" && (
               <svg
