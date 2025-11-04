@@ -5,6 +5,7 @@ import { Button } from "@heroui/button";
 import { useAsrWebSocket } from "../hooks/useAsrWebSocket";
 import { useMicrophoneRecorder } from "../hooks/useMicrophoneRecorder";
 import { useAutoScroll } from "../hooks/useAutoScroll";
+import { useFirebaseCaptions } from "../hooks/useFirebaseCaptions";
 import { formatTextForDisplay } from "../utils/textFormatting";
 import ResizableSplit from "./ResizableSplit";
 import HeaderControls from "./HeaderControls";
@@ -341,6 +342,9 @@ export default function Transcriber() {
     () => formatTextForDisplay(translation),
     [translation]
   );
+
+  // Send captions to Firebase when translation updates
+  useFirebaseCaptions(translation);
 
   const targetWords = targetWordsRef.current;
 

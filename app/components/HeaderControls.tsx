@@ -7,6 +7,7 @@ import {
   SplitViewIcon,
 } from "./ViewIcons";
 import LangDropdown from "./LangDropdown";
+import FirebaseApiSwitchComponent from "./FirebaseApiSwitchComponent";
 
 type ViewMode = "left" | "split" | "right";
 type TargetLanguage = "en" | "ru";
@@ -68,7 +69,6 @@ function HeaderControlsBase({
           <SplitViewIcon />
         </button>
       )}
-
       {/* Language button - only show on right side */}
       {side === "right" && currentLang && onLanguageChange && (
         <LangDropdown
@@ -77,6 +77,7 @@ function HeaderControlsBase({
           disabled={disabled}
         />
       )}
+      <FirebaseApiSwitchComponent />
     </div>
   );
 }
