@@ -198,7 +198,6 @@ export default function Transcriber() {
   }, [appendTranslation, translateLang]);
 
   const asr = useAsrWebSocket({
-    nBest: 1,
     onPartial: (text) => {
       ingestPartialDelta(text);
       void drainQueue();
