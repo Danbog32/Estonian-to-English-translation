@@ -186,7 +186,7 @@ export default function FirebaseApiSwitchComponent() {
 
   return (
     <>
-      <button
+      {/* <button
         type="button"
         onClick={onOpen}
         className={` inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-white/60 hover:text-white hover:bg-white/10 active:bg-white/15 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 cursor-pointer font-mono ${
@@ -198,7 +198,7 @@ export default function FirebaseApiSwitchComponent() {
         <span className="tracking-widest uppercase text-[10px] sm:text-xs text-white/40 font-mono">
           {t.castCaptions}
         </span>
-      </button>
+      </button> */}
 
       <Modal
         isOpen={isOpen}

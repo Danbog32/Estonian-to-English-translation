@@ -138,7 +138,12 @@ export function useAsrWebSocket(options?: UseAsrWebSocketOptions) {
               (message as FlushCompleteMessage).alternatives?.[0]?.text ?? "";
             // console.log("[ASR] Flush complete. Text:", text);
             callbacksRef.current?.onFlushComplete?.(text);
-            setPartialText("");
+            // Clear partialText after a brief delay to allow the callback
+            // to update transcript state first, preventing the Estonian text
+            // from disappearing during the state update race condition
+            setTimeout(() => {
+              setPartialText("");
+            }, 0);
             hasSentAudioRef.current = false;
             return;
           }
@@ -147,7 +152,12 @@ export function useAsrWebSocket(options?: UseAsrWebSocketOptions) {
               (message as FinalMessage).alternatives?.[0]?.text ?? "";
             console.log("[ASR] Final:", text);
             callbacksRef.current?.onFinal?.(text);
-            setPartialText("");
+            // Clear partialText after a brief delay to allow the callback
+            // to update transcript state first, preventing the Estonian text
+            // from disappearing during the state update race condition
+            setTimeout(() => {
+              setPartialText("");
+            }, 0);
             hasSentAudioRef.current = false;
             return;
           }
