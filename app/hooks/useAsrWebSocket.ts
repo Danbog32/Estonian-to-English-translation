@@ -2,35 +2,27 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-type StreamStartedMessage = { event: "stream_started" };
-type FlushingMessage = { event: "flushing" };
-type FlushCompleteMessage = {
-  event: "flush_complete";
-  alternatives: { text: string; confidence?: number }[];
-  is_final: true;
-  duration?: number;
+type ReadyMessage = {
+  type: "ready";
+  session_id: string;
 };
-type FinalMessage = {
-  alternatives: { text: string; confidence?: number }[];
-  is_final: true;
-  duration?: number;
+type TranscriptMessage = {
+  type: "transcript";
+  session_id: string;
+  text: string;
+  is_final: boolean;
+  confidence?: number;
 };
-type PartialMessage = { text: string; is_final: false };
-type ErrorMessage = { error: string };
-type ConnectionClosedMessage = { event: "connection_closed" };
+type ErrorMessage = {
+  type: "error";
+  message: string;
+};
 
-type ServerMessage =
-  | StreamStartedMessage
-  | FlushingMessage
-  | FlushCompleteMessage
-  | FinalMessage
-  | PartialMessage
-  | ErrorMessage
-  | ConnectionClosedMessage;
+type ServerMessage = ReadyMessage | TranscriptMessage | ErrorMessage;
 
 export type UseAsrWebSocketOptions = {
   url?: string;
-  nBest?: number;
+  sampleRate?: number;
   onPartial?: (text: string) => void;
   onFinal?: (text: string) => void;
   onFlushComplete?: (text: string) => void;
@@ -39,14 +31,16 @@ export type UseAsrWebSocketOptions = {
 };
 
 export function useAsrWebSocket(options?: UseAsrWebSocketOptions) {
-  const url = options?.url ?? "wss://tekstiks.ee/asr/ws/asr";
-  const requestedNBest = options?.nBest ?? 1;
+  const url = options?.url ?? "wss://tekstiks.ee/asr/v2";
+  const sampleRate = options?.sampleRate ?? 16000;
 
   const wsRef = useRef<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [isStreamActive, setIsStreamActive] = useState(false);
   const [partialText, setPartialText] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
+  const partialTextRef = useRef<string>("");
 
   // Always use the latest callbacks to avoid stale-closure issues in ws handlers
   const callbacksRef = useRef<UseAsrWebSocketOptions | undefined>(options);
@@ -62,8 +56,10 @@ export function useAsrWebSocket(options?: UseAsrWebSocketOptions) {
     setIsConnected(false);
     setIsStreamActive(false);
     setPartialText("");
+    partialTextRef.current = "";
     setError(null);
     pendingStartRef.current = false;
+    sessionIdRef.current = null;
   }, []);
 
   const connect = useCallback(() => {
@@ -80,7 +76,7 @@ export function useAsrWebSocket(options?: UseAsrWebSocketOptions) {
       const ws = new WebSocket(url);
       // Assign immediately so subsequent connect() calls see CONNECTING state
       wsRef.current = ws;
-      ws.binaryType = "arraybuffer";
+      // v2 protocol uses JSON for all messages, no binary
 
       ws.onopen = () => {
         console.log("[ASR] WebSocket connected");
@@ -89,7 +85,7 @@ export function useAsrWebSocket(options?: UseAsrWebSocketOptions) {
         // If a start was requested before connect, send it immediately
         if (pendingStartRef.current) {
           console.log("[ASR] Sending deferred start after connect");
-          sendJson({ event: "start" });
+          sendJson({ type: "start", sample_rate: sampleRate, format: "pcm" });
           startInFlightRef.current = true;
           pendingStartRef.current = false;
         }
@@ -103,72 +99,52 @@ export function useAsrWebSocket(options?: UseAsrWebSocketOptions) {
             console.log("[ASR] Ignoring non-text frame", typeof data);
             return;
           }
-          if (typeof data !== "string") {
-            // Server only sends JSON text according to protocol; ignore binaries
-            return;
-          }
           const message: ServerMessage = JSON.parse(data);
           //   console.log("[ASR] Message:", message);
-          if ((message as ErrorMessage).error) {
-            const errMsg = (message as ErrorMessage).error;
+
+          if (message.type === "error") {
+            const errMsg = message.message;
             setError(errMsg);
             callbacksRef.current?.onError?.(errMsg);
             return;
           }
-          if ((message as StreamStartedMessage).event === "stream_started") {
-            console.log("[ASR] Stream started");
+
+          if (message.type === "ready") {
+            console.log("[ASR] Stream ready, session_id:", message.session_id);
+            sessionIdRef.current = message.session_id;
             setIsStreamActive(true);
             hasSentAudioRef.current = false;
             startInFlightRef.current = false;
             callbacksRef.current?.onStreamStarted?.();
-            // Optionally configure n_best after stream starts
-            if (requestedNBest && requestedNBest > 1) {
-              console.log("[ASR] Sending config n_best=", requestedNBest);
-              sendConfig(requestedNBest);
+            return;
+          }
+
+          if (message.type === "transcript") {
+            const text = message.text ?? "";
+            if (message.is_final) {
+              console.log("[ASR] Final:", text);
+              // If we have partial text and the final is just a marker like "[Session Ended]",
+              // finalize the partial text first before processing the marker
+              const currentPartial = partialTextRef.current;
+              if (currentPartial && text === "[Session Ended]") {
+                console.log(
+                  "[ASR] Finalizing partial text before session end:",
+                  currentPartial
+                );
+                callbacksRef.current?.onFlushComplete?.(currentPartial);
+              } else if (text && text !== "[Session Ended]") {
+                // Normal final transcript
+                callbacksRef.current?.onFinal?.(text);
+              }
+              setPartialText("");
+              partialTextRef.current = "";
+              hasSentAudioRef.current = false;
+            } else {
+              // console.log("[ASR] Partial:", text);
+              setPartialText(text);
+              partialTextRef.current = text;
+              callbacksRef.current?.onPartial?.(text);
             }
-            return;
-          }
-          if ((message as FlushingMessage).event === "flushing") {
-            // No-op for UI; stream considered inactive during flushing
-            setIsStreamActive(false);
-            return;
-          }
-          if ((message as FlushCompleteMessage).event === "flush_complete") {
-            const text =
-              (message as FlushCompleteMessage).alternatives?.[0]?.text ?? "";
-            // console.log("[ASR] Flush complete. Text:", text);
-            callbacksRef.current?.onFlushComplete?.(text);
-            // Clear partialText after a brief delay to allow the callback
-            // to update transcript state first, preventing the Estonian text
-            // from disappearing during the state update race condition
-            setTimeout(() => {
-              setPartialText("");
-            }, 0);
-            hasSentAudioRef.current = false;
-            return;
-          }
-          if ((message as FinalMessage).is_final) {
-            const text =
-              (message as FinalMessage).alternatives?.[0]?.text ?? "";
-            console.log("[ASR] Final:", text);
-            callbacksRef.current?.onFinal?.(text);
-            // Clear partialText after a brief delay to allow the callback
-            // to update transcript state first, preventing the Estonian text
-            // from disappearing during the state update race condition
-            setTimeout(() => {
-              setPartialText("");
-            }, 0);
-            hasSentAudioRef.current = false;
-            return;
-          }
-          const maybePartial = message as PartialMessage;
-          if (
-            typeof maybePartial.text === "string" &&
-            maybePartial.is_final === false
-          ) {
-            // console.log("[ASR] Partial:", maybePartial.text);
-            setPartialText(maybePartial.text);
-            callbacksRef.current?.onPartial?.(maybePartial.text);
             return;
           }
         } catch {
@@ -195,7 +171,7 @@ export function useAsrWebSocket(options?: UseAsrWebSocketOptions) {
       options?.onError?.(message);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [requestedNBest, resetState, url]);
+  }, [sampleRate, resetState, url]);
 
   const ensureSocketOpen = useCallback(() => {
     const ws = wsRef.current;
@@ -230,20 +206,9 @@ export function useAsrWebSocket(options?: UseAsrWebSocketOptions) {
       return;
     }
     pendingStartRef.current = false;
-    sendJson({ event: "start" });
+    sendJson({ type: "start", sample_rate: sampleRate, format: "pcm" });
     startInFlightRef.current = true;
-    // Send config immediately per protocol if n_best > 1
-    if (requestedNBest && requestedNBest > 1) {
-      sendJson({ event: "config", n_best: requestedNBest });
-    }
-  }, [connect, ensureSocketOpen, sendJson, isStreamActive, requestedNBest]);
-
-  const sendConfig = useCallback(
-    (nBest: number) => {
-      sendJson({ event: "config", n_best: nBest });
-    },
-    [sendJson]
-  );
+  }, [connect, ensureSocketOpen, sendJson, isStreamActive, sampleRate]);
 
   const sendAudio = useCallback(
     (pcm16: Int16Array) => {
@@ -252,35 +217,48 @@ export function useAsrWebSocket(options?: UseAsrWebSocketOptions) {
         return;
       }
       try {
-        wsRef.current!.send(pcm16.buffer);
+        // Convert Int16Array to base64 string
+        const bytes = new Uint8Array(pcm16.buffer);
+        let binary = "";
+        for (let i = 0; i < bytes.length; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        const base64 = btoa(binary);
+
+        // Send as JSON message with base64-encoded audio data
+        sendJson({ type: "audio", data: base64 });
         // console.log("[ASR] >> audio", pcm16.length, "samples");
         hasSentAudioRef.current = true;
       } catch {
         // ignore
       }
     },
-    [ensureSocketOpen]
+    [ensureSocketOpen, sendJson]
   );
 
   const flush = useCallback(() => {
-    console.log("[ASR] flush()");
+    console.log("[ASR] flush() -> stop()");
     if (!isStreamActive && !hasSentAudioRef.current) {
-      console.warn("[ASR] No active stream and no audio sent; ignoring flush");
+      console.warn("[ASR] No active stream and no audio sent; ignoring stop");
       return;
     }
-    sendJson({ event: "flush" });
+    sendJson({ type: "stop" });
+    setIsStreamActive(false);
   }, [sendJson, isStreamActive]);
 
   const endStream = useCallback(() => {
-    console.log("[ASR] end()");
-    sendJson({ event: "end" });
+    console.log("[ASR] endStream() -> stop()");
+    sendJson({ type: "stop" });
+    setIsStreamActive(false);
   }, [sendJson]);
 
   const close = useCallback(() => {
     if (!wsRef.current) return;
     try {
-      // Politely request close, then close socket
-      sendJson({ event: "close" });
+      // Send stop before closing
+      if (isStreamActive || hasSentAudioRef.current) {
+        sendJson({ type: "stop" });
+      }
       wsRef.current.close();
     } catch {
       try {
@@ -289,6 +267,10 @@ export function useAsrWebSocket(options?: UseAsrWebSocketOptions) {
         /* noop */
       }
     }
+  }, [sendJson, isStreamActive]);
+
+  const ping = useCallback(() => {
+    sendJson({ type: "ping" });
   }, [sendJson]);
 
   // Auto-start if requested earlier but socket wasn't open yet
@@ -319,11 +301,11 @@ export function useAsrWebSocket(options?: UseAsrWebSocketOptions) {
       // actions
       connect,
       startStream,
-      sendConfig,
       sendAudio,
       flush,
       endStream,
       close,
+      ping,
     }),
     [
       isConnected,
@@ -332,11 +314,11 @@ export function useAsrWebSocket(options?: UseAsrWebSocketOptions) {
       error,
       connect,
       startStream,
-      sendConfig,
       sendAudio,
       flush,
       endStream,
       close,
+      ping,
     ]
   );
 }
