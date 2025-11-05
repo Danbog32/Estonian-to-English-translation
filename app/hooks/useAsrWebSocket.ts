@@ -40,6 +40,7 @@ export function useAsrWebSocket(options?: UseAsrWebSocketOptions) {
   const [partialText, setPartialText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
+  const partialTextRef = useRef<string>("");
 
   // Always use the latest callbacks to avoid stale-closure issues in ws handlers
   const callbacksRef = useRef<UseAsrWebSocketOptions | undefined>(options);
@@ -55,6 +56,7 @@ export function useAsrWebSocket(options?: UseAsrWebSocketOptions) {
     setIsConnected(false);
     setIsStreamActive(false);
     setPartialText("");
+    partialTextRef.current = "";
     setError(null);
     pendingStartRef.current = false;
     sessionIdRef.current = null;
@@ -121,14 +123,26 @@ export function useAsrWebSocket(options?: UseAsrWebSocketOptions) {
             const text = message.text ?? "";
             if (message.is_final) {
               console.log("[ASR] Final:", text);
-              // callbacksRef.current?.onFinal?.(text);
-              // For backward compatibility, also call onFlushComplete for final transcripts
-              // callbacksRef.current?.onFlushComplete?.(text);
+              // If we have partial text and the final is just a marker like "[Session Ended]",
+              // finalize the partial text first before processing the marker
+              const currentPartial = partialTextRef.current;
+              if (currentPartial && text === "[Session Ended]") {
+                console.log(
+                  "[ASR] Finalizing partial text before session end:",
+                  currentPartial
+                );
+                callbacksRef.current?.onFlushComplete?.(currentPartial);
+              } else if (text && text !== "[Session Ended]") {
+                // Normal final transcript
+                callbacksRef.current?.onFinal?.(text);
+              }
               setPartialText("");
+              partialTextRef.current = "";
               hasSentAudioRef.current = false;
             } else {
               // console.log("[ASR] Partial:", text);
               setPartialText(text);
+              partialTextRef.current = text;
               callbacksRef.current?.onPartial?.(text);
             }
             return;
