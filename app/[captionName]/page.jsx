@@ -6,11 +6,18 @@ import { useParams } from "next/navigation";
 import { db } from "../../firebaseConfig"; // Adjust the path if necessary
 import { doc, onSnapshot } from "firebase/firestore";
 import Image from "next/image";
+import { useAutoScroll } from "../hooks/useAutoScroll";
 
 export default function LiveCaptionsPage() {
   const params = useParams();
   const captionName = params.captionName;
   const [captionText, setCaptionText] = useState("");
+  const { scrollRef, isScrolledUp, scrollToBottom } = useAutoScroll({
+    content: captionText,
+    threshold: 50,
+    buttonThreshold: 200,
+    enabled: true,
+  });
 
   useEffect(() => {
     if (!captionName) return;
@@ -49,7 +56,10 @@ export default function LiveCaptionsPage() {
 
         {/* Caption Text */}
         <div className="relative w-full flex-1 flex flex-col bg-white/[0.01] border border-white/10 rounded-lg backdrop-blur-sm shadow-lg overflow-hidden">
-          <div className="flex-1 overflow-y-auto p-6 md:p-8 custom-scrollbar">
+          <div
+            ref={scrollRef}
+            className="flex-1 overflow-y-auto p-6 md:p-8 custom-scrollbar"
+          >
             {captionText ? (
               <pre className="whitespace-pre-wrap break-words font-mono font-semibold uppercase tracking-[0.06em] leading-[1.08] text-[clamp(20px,5.2vw,42px)] md:text-[clamp(22px,5.6vw,42px)] text-white/90">
                 {captionText}
@@ -62,6 +72,25 @@ export default function LiveCaptionsPage() {
               </div>
             )}
           </div>
+          {isScrolledUp && (
+            <button
+              onClick={scrollToBottom}
+              className="absolute cursor-pointer bottom-20 md:bottom-4 left-1/2 transform -translate-x-1/2 z-20 flex items-center justify-center w-12 h-12 md:w-10 md:h-10 rounded-full bg-emerald-500/90 hover:bg-emerald-400 active:bg-emerald-500 backdrop-blur-sm shadow-lg transition-all duration-200 hover:scale-110 active:scale-95"
+              aria-label="Scroll to bottom"
+            >
+              <svg
+                className="w-6 h-6 md:w-5 md:h-5 text-black"
+                fill="none"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2.5"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path d="M19 14l-7 7m0 0l-7-7m7 7V3"></path>
+              </svg>
+            </button>
+          )}
         </div>
       </div>
     </div>
