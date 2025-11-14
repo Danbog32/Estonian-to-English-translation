@@ -23,7 +23,7 @@ const LANGUAGE_CONFIG = {
     code: "ru",
     label: "Russian",
     systemPrompt:
-      "You are a professional Estonian-to-Ukranian simultaneous interpreter. Translate the following conversations into Russian with maximal faithfulness. Do not paraphrase, summarize, add, or omit information. Preserve tone, tense, named entities, and numbers exactly as they appear. For short or ambiguous fragments, prefer a literal translation. Return only the translation.",
+      "You are a professional Estonian-to-Russian simultaneous interpreter. Translate the following conversations into Russian with maximal faithfulness. Do not paraphrase, summarize, add, or omit information. Preserve tone, tense, named entities, and numbers exactly as they appear. For short or ambiguous fragments, prefer a literal translation. Return only the translation.",
     placeholder: "Russian translation will appear here…",
   },
 } as const;
