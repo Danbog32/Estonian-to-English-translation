@@ -6,25 +6,34 @@ import {
 } from "@heroui/dropdown";
 import { Button } from "@heroui/button";
 import { LanguageIcon } from "./ViewIcons";
-
-type TargetLanguage = "en" | "ru";
+import { LANGUAGES, LanguageCode } from "../utils/languages";
 
 type LangDropdownProps = {
-  currentLang: TargetLanguage;
-  onLanguageChange: (lang: TargetLanguage) => void;
+  currentLang: LanguageCode;
+  onLanguageChange: (lang: LanguageCode) => void;
   disabled?: boolean;
+  availableLanguages?: LanguageCode[];
 };
 
-const items = [
-  { key: "en", label: "English" },
-  { key: "ru", label: "Russian" },
-];
+const items = Object.values(LANGUAGES).map((lang) => ({
+  key: lang.code,
+  label: lang.label,
+}));
 
 export default function LangDropdown({
   currentLang,
   onLanguageChange,
   disabled = false,
+  availableLanguages,
 }: LangDropdownProps) {
+  const filteredItems = availableLanguages
+    ? items.filter((item) =>
+        availableLanguages.includes(item.key as LanguageCode)
+      )
+    : items;
+
+  const currentLangLabel = LANGUAGES[currentLang]?.label || currentLang;
+
   return (
     <Dropdown isDisabled={disabled}>
       <DropdownTrigger>
@@ -36,15 +45,15 @@ export default function LangDropdown({
         >
           <LanguageIcon />
           <span className="tracking-widest uppercase text-[10px] sm:text-xs text-white/40">
-            {currentLang === "en" ? "English" : "Russian"}
+            {currentLangLabel}
           </span>
         </Button>
       </DropdownTrigger>
       <DropdownMenu
         aria-label="Language selection"
-        items={items}
+        items={filteredItems}
         className="min-w-[180px] rounded-xl border border-white/10 bg-[#0f1419] shadow-xl"
-        onAction={(key) => onLanguageChange(key as TargetLanguage)}
+        onAction={(key) => onLanguageChange(key as LanguageCode)}
       >
         {(item) => (
           <DropdownItem

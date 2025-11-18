@@ -8,17 +8,19 @@ import {
 } from "./ViewIcons";
 import LangDropdown from "./LangDropdown";
 import FirebaseApiSwitchComponent from "./FirebaseApiSwitchComponent";
+import { LanguageCode, SOURCE_LANGUAGES } from "../utils/languages";
 
 type ViewMode = "left" | "split" | "right";
-type TargetLanguage = "en" | "ru";
 
 type HeaderControlsProps = {
   side: "left" | "right";
   label: string;
   mode: ViewMode;
   onChange: (mode: ViewMode) => void;
-  currentLang?: TargetLanguage;
-  onLanguageChange?: (lang: TargetLanguage) => void;
+  currentLang?: LanguageCode;
+  onLanguageChange?: (lang: LanguageCode) => void;
+  sourceLang?: LanguageCode;
+  onSourceLanguageChange?: (lang: LanguageCode) => void;
   className?: string;
   disabled?: boolean;
 };
@@ -30,6 +32,8 @@ function HeaderControlsBase({
   onChange,
   currentLang,
   onLanguageChange,
+  sourceLang,
+  onSourceLanguageChange,
   className = "",
   disabled = false,
 }: HeaderControlsProps) {
@@ -69,7 +73,16 @@ function HeaderControlsBase({
           <SplitViewIcon />
         </button>
       )}
-      {/* Language button - only show on right side */}
+      {/* Source language dropdown (left side) */}
+      {side === "left" && sourceLang && onSourceLanguageChange && (
+        <LangDropdown
+          currentLang={sourceLang}
+          onLanguageChange={onSourceLanguageChange}
+          disabled={disabled}
+          availableLanguages={SOURCE_LANGUAGES}
+        />
+      )}
+      {/* Target language dropdown (right side) */}
       {side === "right" && currentLang && onLanguageChange && (
         <LangDropdown
           currentLang={currentLang}

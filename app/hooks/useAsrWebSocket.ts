@@ -23,6 +23,7 @@ type ServerMessage = ReadyMessage | TranscriptMessage | ErrorMessage;
 export type UseAsrWebSocketOptions = {
   url?: string;
   sampleRate?: number;
+  language?: string;
   onPartial?: (text: string) => void;
   onFinal?: (text: string) => void;
   onFlushComplete?: (text: string) => void;
@@ -33,6 +34,7 @@ export type UseAsrWebSocketOptions = {
 export function useAsrWebSocket(options?: UseAsrWebSocketOptions) {
   const url = options?.url ?? "wss://tekstiks.ee/asr/v2";
   const sampleRate = options?.sampleRate ?? 16000;
+  const language = options?.language;
 
   const wsRef = useRef<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
@@ -85,7 +87,20 @@ export function useAsrWebSocket(options?: UseAsrWebSocketOptions) {
         // If a start was requested before connect, send it immediately
         if (pendingStartRef.current) {
           console.log("[ASR] Sending deferred start after connect");
-          sendJson({ type: "start", sample_rate: sampleRate, format: "pcm" });
+          const startPayload: {
+            type: string;
+            sample_rate: number;
+            format: string;
+            language?: string;
+          } = {
+            type: "start",
+            sample_rate: sampleRate,
+            format: "pcm",
+          };
+          if (language) {
+            startPayload.language = language;
+          }
+          sendJson(startPayload);
           startInFlightRef.current = true;
           pendingStartRef.current = false;
         }
@@ -206,9 +221,29 @@ export function useAsrWebSocket(options?: UseAsrWebSocketOptions) {
       return;
     }
     pendingStartRef.current = false;
-    sendJson({ type: "start", sample_rate: sampleRate, format: "pcm" });
+    const startPayload: {
+      type: string;
+      sample_rate: number;
+      format: string;
+      language?: string;
+    } = {
+      type: "start",
+      sample_rate: sampleRate,
+      format: "pcm",
+    };
+    if (language) {
+      startPayload.language = language;
+    }
+    sendJson(startPayload);
     startInFlightRef.current = true;
-  }, [connect, ensureSocketOpen, sendJson, isStreamActive, sampleRate]);
+  }, [
+    connect,
+    ensureSocketOpen,
+    sendJson,
+    isStreamActive,
+    sampleRate,
+    language,
+  ]);
 
   const sendAudio = useCallback(
     (pcm16: Int16Array) => {

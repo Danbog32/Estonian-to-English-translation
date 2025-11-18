@@ -10,33 +10,14 @@ import { formatTextForDisplay } from "../utils/textFormatting";
 import ResizableSplit from "./ResizableSplit";
 import HeaderControls from "./HeaderControls";
 import WordDisplay from "./WordDisplay";
-
-const LANGUAGE_CONFIG = {
-  en: {
-    code: "en",
-    label: "English",
-    systemPrompt:
-      "You are a professional Estonian-to-English simultaneous interpreter. Translate the following conversations into English with maximal faithfulness. Do not paraphrase, summarize, add, or omit information. Preserve tone, tense, named entities, and numbers exactly as they appear. For short or ambiguous fragments, prefer a literal translation. Return only the translation.",
-    placeholder: "English translation will appear here…",
-  },
-  ru: {
-    code: "ru",
-    label: "Russian",
-    systemPrompt:
-      "You are a professional Estonian-to-Russian simultaneous interpreter. Translate the following conversations into Russian with maximal faithfulness. Do not paraphrase, summarize, add, or omit information. Preserve tone, tense, named entities, and numbers exactly as they appear. For short or ambiguous fragments, prefer a literal translation. Return only the translation.",
-    placeholder: "Russian translation will appear here…",
-  },
-} as const;
-
-type LanguageConfig = typeof LANGUAGE_CONFIG;
-type TargetLanguage = keyof LanguageConfig;
-
-const LANGUAGE_OPTIONS = Object.values(LANGUAGE_CONFIG).map(
-  ({ code, label }) => ({
-    code,
-    label,
-  })
-);
+import LangDropdown from "./LangDropdown";
+import {
+  LANGUAGES,
+  LanguageCode,
+  SOURCE_LANGUAGES,
+  generateSystemPrompt,
+  generatePlaceholder,
+} from "../utils/languages";
 
 type HistoryEntry = {
   source: string;
@@ -47,7 +28,7 @@ export default function Transcriber() {
   const [transcript, setTranscript] = useState<string>("");
   const [translation, setTranslation] = useState<string>("");
 
-  // Default to "left" (Estonian) on mobile, "split" on desktop
+  // Default to "left" (source language) on mobile, "split" on desktop
   const [viewMode, setViewMode] = useState<"left" | "split" | "right">(() => {
     if (typeof window !== "undefined" && window.innerWidth < 768) {
       return "left";
@@ -55,7 +36,8 @@ export default function Transcriber() {
     return "split";
   });
 
-  const [translateLang, setTranslateLang] = useState<TargetLanguage>("en");
+  const [sourceLang, setSourceLang] = useState<LanguageCode>("et");
+  const [targetLang, setTargetLang] = useState<LanguageCode>("en");
 
   const pendingWordsRef = useRef<string[]>([]);
   const preparedChunksRef = useRef<string[]>([]);
@@ -149,14 +131,14 @@ export default function Transcriber() {
         const chunk = preparedChunksRef.current.shift();
         if (!chunk) break;
 
-        const language = LANGUAGE_CONFIG[translateLang];
+        const systemPrompt = generateSystemPrompt(sourceLang, targetLang);
         const messages: Array<{
           role: "system" | "user" | "assistant";
           content: string;
         }> = [
           {
             role: "system",
-            content: language.systemPrompt,
+            content: systemPrompt,
           },
         ];
         for (const pair of historyRef.current) {
@@ -196,9 +178,10 @@ export default function Transcriber() {
     } finally {
       isSendingRef.current = false;
     }
-  }, [appendTranslation, translateLang]);
+  }, [appendTranslation, sourceLang, targetLang]);
 
   const asr = useAsrWebSocket({
+    language: sourceLang === "en" ? "en" : undefined,
     onPartial: (text) => {
       ingestPartialDelta(text);
       void drainQueue();
@@ -316,22 +299,47 @@ export default function Transcriber() {
     void stopStream({ flush: true });
   }, [stopStream]);
 
-  const handleLanguageChange = useCallback(
-    async (lang: TargetLanguage) => {
-      if (lang === translateLang) return;
+  const handleTargetLanguageChange = useCallback(
+    async (lang: LanguageCode) => {
+      if (lang === targetLang) return;
       if (isBusy) return;
       await stopStream({ flush: false });
       resetSessionState();
-      setTranslateLang(lang);
+      // If new target matches current source, swap them
+      if (lang === sourceLang) {
+        setSourceLang(targetLang);
+        setTargetLang(sourceLang);
+      } else {
+        setTargetLang(lang);
+      }
     },
-    [isBusy, resetSessionState, stopStream, translateLang]
+    [isBusy, resetSessionState, stopStream, targetLang, sourceLang]
+  );
+
+  const handleSourceLanguageChange = useCallback(
+    async (lang: LanguageCode) => {
+      if (lang === sourceLang) return;
+      if (isBusy) return;
+      await stopStream({ flush: false });
+      resetSessionState();
+      // If new source matches current target, swap them
+      if (lang === targetLang) {
+        setSourceLang(targetLang);
+        setTargetLang(sourceLang);
+      } else {
+        setSourceLang(lang);
+      }
+    },
+    [isBusy, resetSessionState, stopStream, sourceLang, targetLang]
   );
 
   const handleClear = useCallback(() => {
     resetSessionState();
   }, [resetSessionState]);
 
-  const activeLanguage = LANGUAGE_CONFIG[translateLang];
+  const sourceLanguageLabel = LANGUAGES[sourceLang]?.label || sourceLang;
+  const targetLanguageLabel = LANGUAGES[targetLang]?.label || targetLang;
+  const placeholder = generatePlaceholder(targetLang);
 
   const etDisplay = useMemo(() => {
     return [transcript, asr.partialText].filter(Boolean).join(" ").trim();
@@ -426,7 +434,13 @@ export default function Transcriber() {
       {/* Mobile View Switcher & Language Selector */}
       <div className="md:hidden fixed top-0 left-0 right-0 z-30 flex items-center justify-center pt-safe bg-gradient-to-b from-[#0f172a]/95 via-[#0b0f12]/90 to-transparent backdrop-blur-sm pb-3">
         <div className="flex w-full flex-col items-center gap-3 px-4">
-          <div className="flex gap-1 rounded-full bg-white/5 p-1 border border-white/10 shadow-lg">
+          <div className="flex gap-2 items-center">
+            <LangDropdown
+              currentLang={sourceLang}
+              onLanguageChange={handleSourceLanguageChange}
+              disabled={isBusy}
+              availableLanguages={SOURCE_LANGUAGES}
+            />
             <button
               onClick={() => setViewMode("left")}
               className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 min-w-[100px] ${
@@ -435,7 +449,7 @@ export default function Transcriber() {
                   : "text-white/70 hover:text-white hover:bg-white/10"
               }`}
             >
-              Estonian
+              {sourceLanguageLabel}
             </button>
             <button
               onClick={() => setViewMode("right")}
@@ -445,8 +459,13 @@ export default function Transcriber() {
                   : "text-white/70 hover:text-white hover:bg-white/10"
               }`}
             >
-              {activeLanguage.label}
+              {targetLanguageLabel}
             </button>
+            <LangDropdown
+              currentLang={targetLang}
+              onLanguageChange={handleTargetLanguageChange}
+              disabled={isBusy}
+            />
           </div>
         </div>
       </div>
@@ -465,9 +484,12 @@ export default function Transcriber() {
             <div className="hidden md:block absolute left-3 md:left-4 top-4 sm:top-6 z-10">
               <HeaderControls
                 side="left"
-                label="Estonian"
+                label={sourceLanguageLabel}
                 mode={viewMode}
                 onChange={setViewMode}
+                sourceLang={sourceLang}
+                onSourceLanguageChange={handleSourceLanguageChange}
+                disabled={isBusy}
               />
             </div>
             <div
@@ -487,7 +509,7 @@ export default function Transcriber() {
                 </>
               ) : (
                 <span className="text-white/30">
-                  Speak in Estonian to begin…
+                  Speak in {sourceLanguageLabel} to begin…
                 </span>
               )}
             </div>
@@ -517,11 +539,11 @@ export default function Transcriber() {
             <div className="hidden md:block absolute left-3 md:left-4 top-4 sm:top-6 z-10">
               <HeaderControls
                 side="right"
-                label={activeLanguage.label}
+                label={targetLanguageLabel}
                 mode={viewMode}
                 onChange={setViewMode}
-                currentLang={translateLang}
-                onLanguageChange={handleLanguageChange}
+                currentLang={targetLang}
+                onLanguageChange={handleTargetLanguageChange}
                 disabled={isBusy}
               />
             </div>
@@ -537,9 +559,7 @@ export default function Transcriber() {
                   revealDelayMs={REVEAL_DELAY_MS}
                 />
               ) : (
-                <span className="text-white/30">
-                  {activeLanguage.placeholder}
-                </span>
+                <span className="text-white/30">{placeholder}</span>
               )}
             </div>
             {targetIsScrolledUp && (
