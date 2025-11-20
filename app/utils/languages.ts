@@ -27,7 +27,7 @@ export function generateSystemPrompt(
   const sourceLabel = LANGUAGES[sourceLang].label;
   const targetLabel = LANGUAGES[targetLang].label;
 
-  return `You are a professional ${sourceLabel}-to-${targetLabel} simultaneous interpreter. Translate the following conversations into ${targetLabel} with maximal faithfulness. Do not paraphrase, summarize, add, or omit information. Preserve tone, tense, named entities, and numbers exactly as they appear. For short or ambiguous fragments, prefer a literal translation. Return only the translation.`;
+  return `You are a professional ${sourceLabel}-to-${targetLabel} simultaneous interpreter. Translate the following conversations into ${targetLabel}`;
 }
 
 // Generate placeholder text for target language

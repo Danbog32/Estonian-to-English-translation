@@ -54,6 +54,9 @@ export default function Transcriber() {
   const revealRafRef = useRef<number | null>(null);
   const REVEAL_DELAY_MS = 120;
 
+  const TRANSLATION_WINDOW_THRESHOLD = 6;
+  const TRANSLATION_CHUNK_SIZE = 5;
+
   // Local translation chat history: pairs of Estonian input and target output
   const historyRef = useRef<HistoryEntry[]>([]);
   const HISTORY_MAX = 10;
@@ -111,13 +114,16 @@ export default function Transcriber() {
       if (emittedInSegmentRef.current > words.length) {
         emittedInSegmentRef.current = words.length;
       }
-      while (words.length - emittedInSegmentRef.current >= 7) {
+      while (
+        words.length - emittedInSegmentRef.current >=
+        TRANSLATION_WINDOW_THRESHOLD
+      ) {
         const chunkWords = words.slice(
           emittedInSegmentRef.current,
-          emittedInSegmentRef.current + 6
+          emittedInSegmentRef.current + TRANSLATION_CHUNK_SIZE
         );
         preparedChunksRef.current.push(chunkWords.join(" "));
-        emittedInSegmentRef.current += 6;
+        emittedInSegmentRef.current += TRANSLATION_CHUNK_SIZE;
       }
     },
     [normalize]
@@ -194,19 +200,25 @@ export default function Transcriber() {
       if (emittedInSegmentRef.current > words.length) {
         emittedInSegmentRef.current = words.length;
       }
-      while (words.length - emittedInSegmentRef.current >= 7) {
+      while (
+        words.length - emittedInSegmentRef.current >=
+        TRANSLATION_WINDOW_THRESHOLD
+      ) {
         const chunkWords = words.slice(
           emittedInSegmentRef.current,
-          emittedInSegmentRef.current + 6
+          emittedInSegmentRef.current + TRANSLATION_CHUNK_SIZE
         );
         preparedChunksRef.current.push(chunkWords.join(" "));
-        emittedInSegmentRef.current += 6;
+        emittedInSegmentRef.current += TRANSLATION_CHUNK_SIZE;
       }
       const remainder = words.slice(emittedInSegmentRef.current);
       if (remainder.length) {
         pendingWordsRef.current.push(...remainder);
-        while (pendingWordsRef.current.length >= 7) {
-          const chunkWords = pendingWordsRef.current.splice(0, 6);
+        while (pendingWordsRef.current.length >= TRANSLATION_WINDOW_THRESHOLD) {
+          const chunkWords = pendingWordsRef.current.splice(
+            0,
+            TRANSLATION_CHUNK_SIZE
+          );
           preparedChunksRef.current.push(chunkWords.join(" "));
         }
       }
@@ -223,13 +235,16 @@ export default function Transcriber() {
         if (emittedInSegmentRef.current > words.length) {
           emittedInSegmentRef.current = words.length;
         }
-        while (words.length - emittedInSegmentRef.current >= 7) {
+        while (
+          words.length - emittedInSegmentRef.current >=
+          TRANSLATION_WINDOW_THRESHOLD
+        ) {
           const chunkWords = words.slice(
             emittedInSegmentRef.current,
-            emittedInSegmentRef.current + 6
+            emittedInSegmentRef.current + TRANSLATION_CHUNK_SIZE
           );
           preparedChunksRef.current.push(chunkWords.join(" "));
-          emittedInSegmentRef.current += 6;
+          emittedInSegmentRef.current += TRANSLATION_CHUNK_SIZE;
         }
         const remainder = words.slice(emittedInSegmentRef.current);
         if (remainder.length) {
