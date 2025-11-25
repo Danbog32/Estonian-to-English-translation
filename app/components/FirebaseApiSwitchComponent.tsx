@@ -336,15 +336,16 @@ export default function FirebaseApiSwitchComponent({
         onOpenChange={onOpenChange}
         placement="center"
         classNames={{
-          wrapper: "z-[9999] !fixed !inset-0",
+          wrapper: "z-[9999] !fixed !inset-0 flex items-center justify-center p-4",
           backdrop: "z-[9998] bg-black/50",
-          base: "bg-[#0f1419] border border-white/10 z-[9999] relative font-mono max-w-md",
-          header: "border-b border-white/10 px-6 pt-6 pb-4",
-          body: "px-6 py-6",
-          footer: "border-t border-white/10",
+          base: "bg-[#0f1419] border border-white/10 z-[9999] relative font-mono max-w-md w-full max-h-[90vh] md:max-h-[85vh] flex flex-col",
+          header: "border-b border-white/10 px-6 pt-6 pb-4 flex-shrink-0",
+          body: "px-6 py-6 overflow-y-auto flex-1 min-h-0",
+          footer: "border-t border-white/10 flex-shrink-0",
         }}
         backdrop="opaque"
         size="lg"
+        scrollBehavior="inside"
         portalContainer={
           typeof document !== "undefined" ? document.body : undefined
         }
@@ -378,7 +379,7 @@ export default function FirebaseApiSwitchComponent({
                 </h2>
               </ModalHeader>
               <ModalBody>
-                <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-4" style={{ touchAction: "pan-y" }}>
                   {/* Firebase/Web Casting Section */}
                   <Switch
                     style={{ touchAction: "pan-y" }}
