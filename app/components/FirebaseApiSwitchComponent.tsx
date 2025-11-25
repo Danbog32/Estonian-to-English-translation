@@ -2,7 +2,7 @@
 
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import QRCode from "react-qr-code";
 import { useFirebase } from "../contexts/FirebaseContext";
 import {
@@ -19,6 +19,22 @@ declare global {
     setFirebaseSettings?: (enabled: boolean, captionName: string) => void;
   }
 }
+
+export type ObsConnectionSettings = {
+  host: string;
+  port: string;
+  password: string;
+  captionSource: string;
+};
+
+type ObsProps = {
+  obsEnabled: boolean;
+  obsStatus: "idle" | "sending" | "error";
+  obsError: string | null;
+  obsSettings: ObsConnectionSettings;
+  onObsEnabledChange: (enabled: boolean) => void;
+  onObsSettingsChange: (settings: ObsConnectionSettings) => void;
+};
 
 // Simple QR Code Icon Component
 function QRCodeIcon({ className }: { className?: string }) {
@@ -101,13 +117,128 @@ function Switch({
   );
 }
 
-export default function FirebaseApiSwitchComponent() {
+const DEFAULT_OBS_SETTINGS: ObsConnectionSettings = {
+  host: "localhost",
+  port: "4455",
+  password: "",
+  captionSource: "LiveCaptions",
+};
+
+export function getStoredObsSettings(): ObsConnectionSettings {
+  if (typeof window === "undefined") return DEFAULT_OBS_SETTINGS;
+  try {
+    const stored = localStorage.getItem("obs-settings");
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      return { ...DEFAULT_OBS_SETTINGS, ...parsed };
+    }
+  } catch {
+    // ignore parse errors
+  }
+  return DEFAULT_OBS_SETTINGS;
+}
+
+export function storeObsSettings(settings: ObsConnectionSettings) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem("obs-settings", JSON.stringify(settings));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+export default function FirebaseApiSwitchComponent({
+  obsEnabled = false,
+  obsStatus = "idle",
+  obsError = null,
+  obsSettings = DEFAULT_OBS_SETTINGS,
+  onObsEnabledChange,
+  onObsSettingsChange,
+}: Partial<ObsProps> = {}) {
   const [showQRCode, setShowQRCode] = useState(false);
   const [copyMessage, setCopyMessage] = useState("");
   const [showTooltip, setShowTooltip] = useState(false);
   const [language] = useState<"en" | "et">("en");
   const { firebaseEnabled, captionURL, setFirebaseEnabled } = useFirebase();
   const { isOpen, onOpen, onOpenChange } = useDisclosure();
+
+  // OBS local state
+  const [localObsSettings, setLocalObsSettings] =
+    useState<ObsConnectionSettings>(obsSettings);
+  const [showPassword, setShowPassword] = useState(false);
+  const [obsTestStatus, setObsTestStatus] = useState<
+    "idle" | "testing" | "success" | "error"
+  >("idle");
+  const [obsTestError, setObsTestError] = useState<string | null>(null);
+
+  // Sync local OBS settings when props change
+  useEffect(() => {
+    setLocalObsSettings(obsSettings);
+  }, [obsSettings]);
+
+  // Reset test status when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setObsTestStatus("idle");
+      setObsTestError(null);
+    }
+  }, [isOpen]);
+
+  const handleObsInputChange = useCallback(
+    (field: keyof ObsConnectionSettings, value: string) => {
+      setLocalObsSettings((prev) => ({ ...prev, [field]: value }));
+    },
+    []
+  );
+
+  const handleObsSave = useCallback(() => {
+    onObsSettingsChange?.(localObsSettings);
+    storeObsSettings(localObsSettings);
+  }, [localObsSettings, onObsSettingsChange]);
+
+  const handleObsTestConnection = useCallback(async () => {
+    setObsTestStatus("testing");
+    setObsTestError(null);
+
+    try {
+      const response = await fetch("/api/obs/captions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: "🔗 Connection test successful!",
+          settings: localObsSettings,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Connection failed");
+      }
+
+      setObsTestStatus("success");
+      // Auto-save on successful test
+      handleObsSave();
+
+      // Clear success message after 3 seconds
+      setTimeout(() => {
+        setObsTestStatus("idle");
+      }, 3000);
+    } catch (err) {
+      setObsTestStatus("error");
+      setObsTestError(err instanceof Error ? err.message : "Connection failed");
+    }
+  }, [localObsSettings, handleObsSave]);
+
+  const handleObsToggle = useCallback(
+    (enabled: boolean) => {
+      if (enabled) {
+        // Save settings before enabling
+        handleObsSave();
+      }
+      onObsEnabledChange?.(enabled);
+    },
+    [handleObsSave, onObsEnabledChange]
+  );
 
   const translations = {
     en: {
@@ -206,7 +337,7 @@ export default function FirebaseApiSwitchComponent() {
         placement="center"
         classNames={{
           wrapper: "z-[9999] !fixed !inset-0",
-          backdrop: "z-[9998] bg-black/50 backdrop-blur-sm",
+          backdrop: "z-[9998] bg-black/50",
           base: "bg-[#0f1419] border border-white/10 z-[9999] relative font-mono max-w-md",
           header: "border-b border-white/10 px-6 pt-6 pb-4",
           body: "px-6 py-6",
@@ -248,6 +379,7 @@ export default function FirebaseApiSwitchComponent() {
               </ModalHeader>
               <ModalBody>
                 <div className="flex flex-col gap-4">
+                  {/* Firebase/Web Casting Section */}
                   <Switch
                     style={{ touchAction: "pan-y" }}
                     isSelected={firebaseEnabled}
@@ -267,8 +399,8 @@ export default function FirebaseApiSwitchComponent() {
                     </div>
                   </Switch>
 
-                  {captionURL && (
-                    <div className="flex flex-col gap-3 bg-[#1a1f2e] rounded-lg p-4 border border-white/10">
+                  {captionURL && firebaseEnabled && (
+                    <div className="flex flex-col gap-3 bg-[#1a1f2e] rounded-lg p-4 border border-white/10 ml-0">
                       <p className="text-sm text-white/80 font-mono uppercase tracking-wider">
                         {t.yourLiveCaptions}
                       </p>
@@ -311,6 +443,262 @@ export default function FirebaseApiSwitchComponent() {
                         </div>
                       )}
                     </div>
+                  )}
+
+                  {/* Divider */}
+                  <div className="border-t border-white/10 my-1" />
+
+                  {/* OBS Studio Section */}
+                  {onObsEnabledChange && (
+                    <>
+                      <Switch
+                        style={{ touchAction: "pan-y" }}
+                        isSelected={obsEnabled}
+                        onChange={(e) => handleObsToggle(e.target.checked)}
+                        classNames={{
+                          wrapper: "p-0 h-5 overflow-visible flex-shrink-0",
+                          thumb: "w-5 h-5 border-2 shadow-lg",
+                        }}
+                      >
+                        <div className="flex flex-col gap-1 flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-medium text-white font-mono uppercase tracking-wider">
+                              OBS Studio
+                            </p>
+                            {obsEnabled && (
+                              <span
+                                className={`h-2 w-2 rounded-full ${
+                                  obsStatus === "error"
+                                    ? "bg-red-400"
+                                    : obsStatus === "sending"
+                                      ? "bg-amber-300"
+                                      : "bg-emerald-400"
+                                }`}
+                              />
+                            )}
+                          </div>
+                          <p className="text-xs text-white/60 font-mono">
+                            Stream live captions to OBS via WebSocket
+                          </p>
+                        </div>
+                      </Switch>
+
+                      {obsEnabled && (
+                        <div className="flex flex-col gap-4 bg-[#1a1f2e] rounded-lg p-4 border border-white/10">
+                          {/* Host & Port */}
+                          <div className="grid grid-cols-3 gap-3">
+                            <div className="col-span-2">
+                              <label
+                                htmlFor="obs-host"
+                                className="mb-1.5 block text-xs font-medium text-white/60 font-mono uppercase tracking-wider"
+                              >
+                                Host / IP
+                              </label>
+                              <input
+                                id="obs-host"
+                                type="text"
+                                value={localObsSettings.host}
+                                onChange={(e) =>
+                                  handleObsInputChange("host", e.target.value)
+                                }
+                                placeholder="localhost"
+                                className="w-full rounded-lg border border-white/10 bg-[#0f1419] px-3 py-2.5 text-sm text-white placeholder-white/30 outline-none transition-colors focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/20 font-mono"
+                              />
+                            </div>
+                            <div>
+                              <label
+                                htmlFor="obs-port"
+                                className="mb-1.5 block text-xs font-medium text-white/60 font-mono uppercase tracking-wider"
+                              >
+                                Port
+                              </label>
+                              <input
+                                id="obs-port"
+                                type="text"
+                                value={localObsSettings.port}
+                                onChange={(e) =>
+                                  handleObsInputChange("port", e.target.value)
+                                }
+                                placeholder="4455"
+                                className="w-full rounded-lg border border-white/10 bg-[#0f1419] px-3 py-2.5 text-sm text-white placeholder-white/30 outline-none transition-colors focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/20 font-mono"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Password */}
+                          <div>
+                            <label
+                              htmlFor="obs-password"
+                              className="mb-1.5 block text-xs font-medium text-white/60 font-mono uppercase tracking-wider"
+                            >
+                              Password
+                            </label>
+                            <div className="relative">
+                              <input
+                                id="obs-password"
+                                type={showPassword ? "text" : "password"}
+                                value={localObsSettings.password}
+                                onChange={(e) =>
+                                  handleObsInputChange(
+                                    "password",
+                                    e.target.value
+                                  )
+                                }
+                                placeholder="Leave empty if not set"
+                                className="w-full rounded-lg border border-white/10 bg-[#0f1419] px-3 py-2.5 pr-10 text-sm text-white placeholder-white/30 outline-none transition-colors focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/20 font-mono"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowPassword(!showPassword)}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-white/40 hover:text-white/70"
+                                aria-label={
+                                  showPassword
+                                    ? "Hide password"
+                                    : "Show password"
+                                }
+                              >
+                                {showPassword ? (
+                                  <svg
+                                    className="h-4 w-4"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                  >
+                                    <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24" />
+                                    <line x1="1" y1="1" x2="23" y2="23" />
+                                  </svg>
+                                ) : (
+                                  <svg
+                                    className="h-4 w-4"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                  >
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                    <circle cx="12" cy="12" r="3" />
+                                  </svg>
+                                )}
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Caption Source */}
+                          <div>
+                            <label
+                              htmlFor="obs-source"
+                              className="mb-1.5 block text-xs font-medium text-white/60 font-mono uppercase tracking-wider"
+                            >
+                              Text Source Name
+                            </label>
+                            <input
+                              id="obs-source"
+                              type="text"
+                              value={localObsSettings.captionSource}
+                              onChange={(e) =>
+                                handleObsInputChange(
+                                  "captionSource",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="LiveCaptions"
+                              className="w-full rounded-lg border border-white/10 bg-[#0f1419] px-3 py-2.5 text-sm text-white placeholder-white/30 outline-none transition-colors focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/20 font-mono"
+                            />
+                            <p className="mt-1.5 text-xs text-white/40 font-mono">
+                              The name of the Text (GDI+) source in OBS
+                            </p>
+                          </div>
+
+                          {/* Test Connection Button */}
+                          <button
+                            onClick={handleObsTestConnection}
+                            disabled={obsTestStatus === "testing"}
+                            className="flex w-full items-center justify-center gap-2 rounded-lg border border-white/10 bg-[#0f1419] px-4 py-2.5 text-sm font-medium text-white transition-all hover:bg-white/5 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 font-mono uppercase tracking-wider"
+                          >
+                            {obsTestStatus === "testing" ? (
+                              <>
+                                <svg
+                                  className="h-4 w-4 animate-spin"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <circle
+                                    className="opacity-25"
+                                    cx="12"
+                                    cy="12"
+                                    r="10"
+                                    stroke="currentColor"
+                                    strokeWidth="4"
+                                    fill="none"
+                                  />
+                                  <path
+                                    className="opacity-75"
+                                    fill="currentColor"
+                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                                  />
+                                </svg>
+                                <span>Testing...</span>
+                              </>
+                            ) : obsTestStatus === "success" ? (
+                              <>
+                                <svg
+                                  className="h-4 w-4 text-emerald-400"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                >
+                                  <path d="M20 6L9 17l-5-5" />
+                                </svg>
+                                <span className="text-emerald-400">
+                                  Connected!
+                                </span>
+                              </>
+                            ) : (
+                              <>
+                                <svg
+                                  className="h-4 w-4"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                >
+                                  <path d="M8.5 14.5A2.5 2.5 0 0011 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 11-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 002.5 2.5z" />
+                                </svg>
+                                <span>Test Connection</span>
+                              </>
+                            )}
+                          </button>
+
+                          {/* Error Message */}
+                          {(obsTestStatus === "error" || obsError) && (
+                            <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2.5">
+                              <div className="flex items-start gap-2">
+                                <svg
+                                  className="mt-0.5 h-4 w-4 flex-shrink-0 text-red-400"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                >
+                                  <circle cx="12" cy="12" r="10" />
+                                  <line x1="12" y1="8" x2="12" y2="12" />
+                                  <line x1="12" y1="16" x2="12.01" y2="16" />
+                                </svg>
+                                <p className="text-xs text-red-200/80 font-mono">
+                                  {obsTestError || obsError}
+                                </p>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Info footer */}
+                          <p className="text-xs text-white/30 font-mono">
+                            Requires OBS WebSocket 5.0+
+                          </p>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               </ModalBody>

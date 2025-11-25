@@ -8,6 +8,10 @@ export const LANGUAGES = {
     code: "en",
     label: "English",
   },
+  ua: {
+    code: "ua",
+    label: "Ukrainian",
+  },
   ru: {
     code: "ru",
     label: "Russian",

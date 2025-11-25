@@ -11,6 +11,12 @@ import ResizableSplit from "./ResizableSplit";
 import HeaderControls from "./HeaderControls";
 import WordDisplay from "./WordDisplay";
 import LangDropdown from "./LangDropdown";
+import { useObsCaptionPublisher } from "../hooks/useObsCaptionPublisher";
+import FirebaseApiSwitchComponent, {
+  getStoredObsSettings,
+  storeObsSettings,
+  type ObsConnectionSettings,
+} from "./FirebaseApiSwitchComponent";
 import {
   LANGUAGES,
   LanguageCode,
@@ -38,6 +44,11 @@ export default function Transcriber() {
 
   const [sourceLang, setSourceLang] = useState<LanguageCode>("et");
   const [targetLang, setTargetLang] = useState<LanguageCode>("en");
+
+  // OBS Settings state
+  const [obsSettings, setObsSettings] = useState<ObsConnectionSettings>(() =>
+    getStoredObsSettings()
+  );
 
   const pendingWordsRef = useRef<string[]>([]);
   const preparedChunksRef = useRef<string[]>([]);
@@ -368,6 +379,27 @@ export default function Transcriber() {
   // Send captions to Firebase when translation updates
   useFirebaseCaptions(translation);
 
+  const {
+    enabled: obsStreamingEnabled,
+    status: obsStreamingStatus,
+    error: obsStreamingError,
+    setEnabled: setObsStreamingEnabled,
+  } = useObsCaptionPublisher(targetDisplay, {
+    debounceMs: 250,
+    maxWords: 16, // Show only last 16 words (TV caption style)
+    maxCharsPerLine: 45, // Wrap lines at ~45 chars
+    maxLines: 2, // 2 lines max with \n between them
+    connectionSettings: obsSettings,
+  });
+
+  const handleObsSettingsChange = useCallback(
+    (newSettings: ObsConnectionSettings) => {
+      setObsSettings(newSettings);
+      storeObsSettings(newSettings);
+    },
+    []
+  );
+
   const targetWords = targetWordsRef.current;
 
   const fadeStart = useMemo(() => {
@@ -446,6 +478,14 @@ export default function Transcriber() {
 
   return (
     <div className="relative h-screen w-full bg-[radial-gradient(1200px_600px_at_-10%_-10%,#0f172a_0%,#0b0f12_40%,#050607_80%)] text-neutral-100 overflow-hidden">
+      {obsStreamingEnabled && obsStreamingError && (
+        <div className="fixed right-4 top-4 z-40 max-w-sm rounded-lg border border-red-500/60 bg-red-500/10 px-4 py-2 text-sm text-red-100 shadow-lg">
+          <p className="font-semibold uppercase tracking-wide text-red-200">
+            OBS sync issue
+          </p>
+          <p className="text-red-100/80">{obsStreamingError}</p>
+        </div>
+      )}
       {/* Mobile View Switcher & Language Selector */}
       <div className="md:hidden fixed top-0 left-0 right-0 z-30 flex items-center justify-center pt-safe bg-gradient-to-b from-[#0f172a]/95 via-[#0b0f12]/90 to-transparent backdrop-blur-sm pb-3">
         <div className="flex w-full flex-col items-center gap-3 px-4">
@@ -480,6 +520,14 @@ export default function Transcriber() {
               currentLang={targetLang}
               onLanguageChange={handleTargetLanguageChange}
               disabled={isBusy}
+            />
+            <FirebaseApiSwitchComponent
+              obsEnabled={obsStreamingEnabled}
+              obsStatus={obsStreamingStatus}
+              obsError={obsStreamingError}
+              obsSettings={obsSettings}
+              onObsEnabledChange={setObsStreamingEnabled}
+              onObsSettingsChange={handleObsSettingsChange}
             />
           </div>
         </div>
@@ -560,6 +608,12 @@ export default function Transcriber() {
                 currentLang={targetLang}
                 onLanguageChange={handleTargetLanguageChange}
                 disabled={isBusy}
+                obsEnabled={obsStreamingEnabled}
+                obsStatus={obsStreamingStatus}
+                obsError={obsStreamingError}
+                obsSettings={obsSettings}
+                onObsEnabledChange={setObsStreamingEnabled}
+                onObsSettingsChange={handleObsSettingsChange}
               />
             </div>
             <div

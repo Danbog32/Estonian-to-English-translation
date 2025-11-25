@@ -7,7 +7,9 @@ import {
   SplitViewIcon,
 } from "./ViewIcons";
 import LangDropdown from "./LangDropdown";
-import FirebaseApiSwitchComponent from "./FirebaseApiSwitchComponent";
+import FirebaseApiSwitchComponent, {
+  type ObsConnectionSettings,
+} from "./FirebaseApiSwitchComponent";
 import { LanguageCode, SOURCE_LANGUAGES } from "../utils/languages";
 
 type ViewMode = "left" | "split" | "right";
@@ -23,6 +25,13 @@ type HeaderControlsProps = {
   onSourceLanguageChange?: (lang: LanguageCode) => void;
   className?: string;
   disabled?: boolean;
+  // OBS props to pass to FirebaseApiSwitchComponent
+  obsEnabled?: boolean;
+  obsStatus?: "idle" | "sending" | "error";
+  obsError?: string | null;
+  obsSettings?: ObsConnectionSettings;
+  onObsEnabledChange?: (enabled: boolean) => void;
+  onObsSettingsChange?: (settings: ObsConnectionSettings) => void;
 };
 
 function HeaderControlsBase({
@@ -36,6 +45,12 @@ function HeaderControlsBase({
   onSourceLanguageChange,
   className = "",
   disabled = false,
+  obsEnabled,
+  obsStatus,
+  obsError,
+  obsSettings,
+  onObsEnabledChange,
+  onObsSettingsChange,
 }: HeaderControlsProps) {
   const isSplit = mode === "split";
   const soloTarget: ViewMode = side === "left" ? "left" : "right";
@@ -91,7 +106,16 @@ function HeaderControlsBase({
         />
       )}
 
-      {side === "right" && <FirebaseApiSwitchComponent />}
+      {side === "right" && (
+        <FirebaseApiSwitchComponent
+          obsEnabled={obsEnabled}
+          obsStatus={obsStatus}
+          obsError={obsError}
+          obsSettings={obsSettings}
+          onObsEnabledChange={onObsEnabledChange}
+          onObsSettingsChange={onObsSettingsChange}
+        />
+      )}
     </div>
   );
 }
