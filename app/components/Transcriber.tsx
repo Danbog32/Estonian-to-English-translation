@@ -521,14 +521,41 @@ export default function Transcriber() {
               onLanguageChange={handleTargetLanguageChange}
               disabled={isBusy}
             />
-            <FirebaseApiSwitchComponent
-              obsEnabled={obsStreamingEnabled}
-              obsStatus={obsStreamingStatus}
-              obsError={obsStreamingError}
-              obsSettings={obsSettings}
-              onObsEnabledChange={setObsStreamingEnabled}
-              onObsSettingsChange={handleObsSettingsChange}
-            />
+            {/* <button
+              type="button"
+              onClick={() => setObsStreamingEnabled(!obsStreamingEnabled)}
+              className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-wide transition-colors ${
+                obsStreamingEnabled
+                  ? "border-emerald-400/60 bg-emerald-400/15 text-emerald-100"
+                  : "border-white/20 text-white/70"
+              } ${
+                obsStreamingStatus === "error"
+                  ? "border-red-500/60 bg-red-500/10 text-red-200"
+                  : ""
+              }`}
+            >
+              <span>OBS</span>
+              <span
+                className={`h-2 w-2 rounded-full ${
+                  obsStreamingStatus === "error"
+                    ? "bg-red-400"
+                    : obsStreamingStatus === "sending"
+                      ? "bg-amber-300"
+                      : obsStreamingEnabled
+                        ? "bg-emerald-400"
+                        : "bg-white/40"
+                }`}
+              />
+              <span>
+                {obsStreamingStatus === "error"
+                  ? "Error"
+                  : obsStreamingEnabled
+                    ? obsStreamingStatus === "sending"
+                      ? "Syncing"
+                      : "On"
+                    : "Off"}
+              </span>
+            </button> */}
           </div>
         </div>
       </div>
