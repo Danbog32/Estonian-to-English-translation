@@ -203,8 +203,12 @@ export default function Transcriber() {
     return lang; // 'et' and others passed as-is
   };
 
+  // English fastconformer uses delta mode (each message is NEW text, not cumulative)
+  const isDeltaMode = sourceLang === "en";
+
   const asr = useAsrWebSocket({
     language: getAsrLanguage(sourceLang),
+    deltaMode: isDeltaMode,
     onPartial: (text) => {
       ingestPartialDelta(text);
       void drainQueue();

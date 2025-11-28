@@ -24,6 +24,12 @@ export type UseAsrWebSocketOptions = {
   url?: string;
   sampleRate?: number;
   language?: string;
+  /**
+   * Delta mode for models like fastconformer_ctc_en that return NEW text each time
+   * (not cumulative). In delta mode, every transcript is treated as a final append.
+   * Default: false (cumulative mode for Estonian)
+   */
+  deltaMode?: boolean;
   onPartial?: (text: string) => void;
   onFinal?: (text: string) => void;
   onFlushComplete?: (text: string) => void;
@@ -35,6 +41,7 @@ export function useAsrWebSocket(options?: UseAsrWebSocketOptions) {
   const url = options?.url ?? "wss://tekstiks.ee/asr/v2";
   const sampleRate = options?.sampleRate ?? 16000;
   const language = options?.language;
+  const deltaMode = options?.deltaMode ?? false;
 
   const wsRef = useRef<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
@@ -136,19 +143,36 @@ export function useAsrWebSocket(options?: UseAsrWebSocketOptions) {
 
           if (message.type === "transcript") {
             const text = message.text ?? "";
+
+            // Handle [Session Ended] marker
+            if (text === "[Session Ended]") {
+              console.log("[ASR] Session ended marker received");
+              const currentPartial = partialTextRef.current;
+              if (currentPartial) {
+                console.log("[ASR] Finalizing partial text before session end:", currentPartial);
+                callbacksRef.current?.onFlushComplete?.(currentPartial);
+              }
+              setPartialText("");
+              partialTextRef.current = "";
+              hasSentAudioRef.current = false;
+              return;
+            }
+
+            // Delta mode: English fastconformer returns NEW text each time (append-only)
+            if (deltaMode) {
+              if (text.trim()) {
+                console.log("[ASR] Delta:", text);
+                // In delta mode, every transcript is treated as final (append)
+                callbacksRef.current?.onFinal?.(text);
+              }
+              hasSentAudioRef.current = false;
+              return;
+            }
+
+            // Cumulative mode: Estonian returns full hypothesis (replace partial)
             if (message.is_final) {
               console.log("[ASR] Final:", text);
-              // If we have partial text and the final is just a marker like "[Session Ended]",
-              // finalize the partial text first before processing the marker
-              const currentPartial = partialTextRef.current;
-              if (currentPartial && text === "[Session Ended]") {
-                console.log(
-                  "[ASR] Finalizing partial text before session end:",
-                  currentPartial
-                );
-                callbacksRef.current?.onFlushComplete?.(currentPartial);
-              } else if (text && text !== "[Session Ended]") {
-                // Normal final transcript
+              if (text) {
                 callbacksRef.current?.onFinal?.(text);
               }
               setPartialText("");
