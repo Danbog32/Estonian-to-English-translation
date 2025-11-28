@@ -4,7 +4,6 @@ import {
   DropdownMenu,
   DropdownItem,
 } from "@heroui/dropdown";
-import { Button } from "@heroui/button";
 import { LanguageIcon } from "./ViewIcons";
 import { LANGUAGES, LanguageCode } from "../utils/languages";
 
@@ -37,17 +36,16 @@ export default function LangDropdown({
   return (
     <Dropdown isDisabled={disabled}>
       <DropdownTrigger>
-        <Button
-          variant="solid"
-          color="primary"
+        <button
+          type="button"
           disabled={disabled}
           className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-white/60 hover:text-white hover:bg-white/10 active:bg-white/15 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 cursor-pointer ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
         >
           <LanguageIcon />
-          <span className="tracking-widest uppercase text-[10px] sm:text-xs text-white/40">
+          <span className="tracking-widest uppercase text-[10px] sm:text-xs text-white/60 hover:text-white">
             {currentLangLabel}
           </span>
-        </Button>
+        </button>
       </DropdownTrigger>
       <DropdownMenu
         aria-label="Language selection"
