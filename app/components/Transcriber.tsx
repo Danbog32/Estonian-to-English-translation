@@ -197,8 +197,14 @@ export default function Transcriber() {
     }
   }, [appendTranslation, sourceLang, targetLang]);
 
+  // Map source language to ASR server model/language identifier
+  const getAsrLanguage = (lang: LanguageCode): string => {
+    if (lang === "en") return "fastconformer_ctc_en_1040ms";
+    return lang; // 'et' and others passed as-is
+  };
+
   const asr = useAsrWebSocket({
-    language: sourceLang === "en" ? "en" : undefined,
+    language: getAsrLanguage(sourceLang),
     onPartial: (text) => {
       ingestPartialDelta(text);
       void drainQueue();
