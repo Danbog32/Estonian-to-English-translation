@@ -8,6 +8,7 @@ export type UseMicrophoneRecorderOptions = {
   targetChunkDurationMs?: number; // default 200ms
   onChunk?: (pcm16: Int16Array) => void;
   onError?: (message: string) => void;
+  onAudioLevel?: (level: number) => void; // 0-1 range, called ~60fps
 };
 
 export function useMicrophoneRecorder(options?: UseMicrophoneRecorderOptions) {
@@ -16,13 +17,17 @@ export function useMicrophoneRecorder(options?: UseMicrophoneRecorderOptions) {
 
   const [isRecording, setIsRecording] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [audioLevel, setAudioLevel] = useState(0);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const workletNodeRef = useRef<AudioWorkletNode | null>(null);
+  const analyserNodeRef = useRef<AnalyserNode | null>(null);
   const resamplerRef = useRef<StreamingResampler | null>(null);
   const floatBufferRef = useRef<Float32Array>(new Float32Array(0));
+  const levelAnimationFrameRef = useRef<number | null>(null);
+  const smoothedLevelRef = useRef(0);
 
   const clearAudioGraph = useCallback(() => {
     try {
@@ -31,12 +36,24 @@ export function useMicrophoneRecorder(options?: UseMicrophoneRecorderOptions) {
       /* noop */
     }
     try {
+      analyserNodeRef.current?.disconnect();
+    } catch {
+      /* noop */
+    }
+    try {
       sourceNodeRef.current?.disconnect();
     } catch {
       /* noop */
     }
+    if (levelAnimationFrameRef.current !== null) {
+      cancelAnimationFrame(levelAnimationFrameRef.current);
+      levelAnimationFrameRef.current = null;
+    }
     workletNodeRef.current = null;
+    analyserNodeRef.current = null;
     sourceNodeRef.current = null;
+    smoothedLevelRef.current = 0;
+    setAudioLevel(0);
   }, []);
 
   const cleanup = useCallback(async () => {
@@ -75,10 +92,6 @@ export function useMicrophoneRecorder(options?: UseMicrophoneRecorderOptions) {
   );
 
   const start = useCallback(async () => {
-    if (isRecording) {
-      console.log("[MIC] Already recording");
-      return;
-    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -88,35 +101,88 @@ export function useMicrophoneRecorder(options?: UseMicrophoneRecorderOptions) {
           channelCount: 1,
         },
       });
-      console.log("[MIC] Mic access granted");
+      // console.log("[MIC] Mic access granted");
       mediaStreamRef.current = stream;
 
       const audioContext = new (window.AudioContext ||
         (window as unknown as { webkitAudioContext: typeof AudioContext })
           .webkitAudioContext)();
       audioContextRef.current = audioContext;
-      console.log("[MIC] AudioContext created; sr=", audioContext.sampleRate);
+      // console.log("[MIC] AudioContext created; sr=", audioContext.sampleRate);
 
       // Prepare resampler from input sample rate to target
       resamplerRef.current = new StreamingResampler(
         audioContext.sampleRate,
         targetSampleRate
       );
-      console.log(
-        "[MIC] Resampler configured",
-        audioContext.sampleRate,
-        "->",
-        targetSampleRate
-      );
 
       // Load worklet
       try {
         await audioContext.audioWorklet.addModule("/worklets/pcm-processor.js");
-        console.log("[MIC] Worklet loaded");
       } catch (e) {
         handleError("Failed to load audio worklet");
         throw e;
       }
+
+      // Create analyser for audio level detection
+      const analyserNode = audioContext.createAnalyser();
+      analyserNode.fftSize = 512; // Increased for better frequency resolution
+      analyserNode.smoothingTimeConstant = 0.2; // Less smoothing for more responsiveness
+      analyserNodeRef.current = analyserNode;
+
+      // Start audio level monitoring
+      const bufferLength = analyserNode.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+
+      const updateAudioLevel = () => {
+        if (!analyserNodeRef.current) return;
+
+        // Use frequency data instead of time domain for better speech detection
+        analyserNode.getByteFrequencyData(dataArray);
+
+        // Focus on speech frequency range (80Hz - 3000Hz)
+        // At 48kHz sample rate with 512 FFT, each bin is ~94Hz
+        // At 44.1kHz, each bin is ~86Hz
+        const nyquist = audioContext.sampleRate / 2;
+        const binWidth = nyquist / bufferLength;
+        const lowFreqBin = Math.floor(80 / binWidth);
+        const highFreqBin = Math.floor(3000 / binWidth);
+
+        // Calculate average amplitude in speech frequency range
+        let sum = 0;
+        let count = 0;
+        for (let i = lowFreqBin; i < Math.min(highFreqBin, bufferLength); i++) {
+          sum += dataArray[i];
+          count++;
+        }
+        const avgAmplitude = count > 0 ? sum / count : 0;
+
+        // Normalize to 0-1 range (byte range is 0-255)
+        const normalized = avgAmplitude / 255;
+
+        // Apply less aggressive smoothing for more responsiveness
+        const smoothingFactor = 1;
+        smoothedLevelRef.current =
+          smoothingFactor * normalized + (1 - smoothingFactor) * smoothedLevelRef.current;
+
+        // Noise gate: ignore values below threshold to filter ambient noise
+        const NOISE_GATE_THRESHOLD = 0.08; // Lower threshold for gradual response
+        const gated = smoothedLevelRef.current > NOISE_GATE_THRESHOLD 
+          ? smoothedLevelRef.current - NOISE_GATE_THRESHOLD 
+          : 0;
+
+        // Apply logarithmic scaling with gentle boost for gradual response
+        // Higher power (0.85) + lower boost (1.2) = gradual curve with middle levels
+        const boosted = Math.pow(gated, 1.6) * 4;
+        const normalizedLevel = Math.min(1, boosted);
+
+        setAudioLevel(normalizedLevel);
+        options?.onAudioLevel?.(normalizedLevel);
+
+        levelAnimationFrameRef.current = requestAnimationFrame(updateAudioLevel);
+      };
+
+      levelAnimationFrameRef.current = requestAnimationFrame(updateAudioLevel);
 
       const sourceNode = audioContext.createMediaStreamSource(stream);
       sourceNodeRef.current = sourceNode;
@@ -165,7 +231,9 @@ export function useMicrophoneRecorder(options?: UseMicrophoneRecorderOptions) {
         }
       };
 
-      sourceNode.connect(workletNode);
+      // Connect: source -> analyser -> worklet -> silent gain -> destination
+      sourceNode.connect(analyserNode);
+      analyserNode.connect(workletNode);
       workletNode.connect(silentGain);
       silentGain.connect(audioContext.destination);
 
@@ -201,9 +269,10 @@ export function useMicrophoneRecorder(options?: UseMicrophoneRecorderOptions) {
     () => ({
       isRecording,
       error,
+      audioLevel,
       start,
       stop,
     }),
-    [isRecording, error, start, stop]
+    [isRecording, error, audioLevel, start, stop]
   );
 }

@@ -12,6 +12,7 @@ import HeaderControls from "./HeaderControls";
 import WordDisplay from "./WordDisplay";
 import LangDropdown from "./LangDropdown";
 import { useObsCaptionPublisher } from "../hooks/useObsCaptionPublisher";
+import { AudioLevelIndicator } from "./AudioLevelIndicator";
 import FirebaseApiSwitchComponent, {
   getStoredObsSettings,
   storeObsSettings,
@@ -693,9 +694,14 @@ export default function Transcriber() {
 
       <div className="pointer-events-none fixed inset-x-0 bottom-4 md:bottom-6 flex items-center justify-center pb-safe">
         <div className="pointer-events-auto flex items-center gap-2 md:gap-2 rounded-full border border-white/10 bg-white/5 px-3 md:px-2 py-2 md:py-1.5 backdrop-blur-md shadow-lg">
-          <span
-            className={`inline-flex h-2.5 w-2.5 md:h-2 md:w-2 rounded-full ${isBusy ? "bg-emerald-400" : "bg-white/30"}`}
-          />
+          {mic.isRecording ? (
+            <AudioLevelIndicator
+              level={mic.audioLevel}
+              className="mx-1"
+            />
+          ) : (
+            <span className="inline-flex h-2.5 w-2.5 md:h-2 md:w-2 rounded-full bg-white/30" />
+          )}
           <Button
             className="rounded-full bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-500 text-black px-6 md:px-4 py-2.5 md:py-2 text-base md:text-sm font-medium disabled:opacity-50 min-h-[44px] md:min-h-0"
             onPress={handleStart}
