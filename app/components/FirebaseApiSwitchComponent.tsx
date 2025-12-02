@@ -2,8 +2,9 @@
 
 "use client";
 
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import QRCode from "react-qr-code";
+import OBSWebSocket from "obs-websocket-js";
 import { useFirebase } from "../contexts/FirebaseContext";
 import {
   Modal,
@@ -13,6 +14,7 @@ import {
   useDisclosure,
 } from "@heroui/modal";
 import { CastIcon } from "./ViewIcons";
+import type { ObsStreamingStatus } from "../hooks/useObsCaptionPublisher";
 
 declare global {
   interface Window {
@@ -29,7 +31,7 @@ export type ObsConnectionSettings = {
 
 type ObsProps = {
   obsEnabled: boolean;
-  obsStatus: "idle" | "sending" | "error";
+  obsStatus: ObsStreamingStatus;
   obsError: string | null;
   obsSettings: ObsConnectionSettings;
   onObsEnabledChange: (enabled: boolean) => void;
@@ -196,36 +198,96 @@ export default function FirebaseApiSwitchComponent({
     storeObsSettings(localObsSettings);
   }, [localObsSettings, onObsSettingsChange]);
 
+  // Ref for test connection OBS instance
+  const testObsRef = useRef<OBSWebSocket | null>(null);
+
   const handleObsTestConnection = useCallback(async () => {
     setObsTestStatus("testing");
     setObsTestError(null);
 
+    // Clean up previous test connection
+    if (testObsRef.current) {
+      try {
+        testObsRef.current.disconnect();
+      } catch {
+        // Ignore disconnect errors
+      }
+      testObsRef.current = null;
+    }
+
+    const obs = new OBSWebSocket();
+    testObsRef.current = obs;
+
     try {
-      const response = await fetch("/api/obs/captions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text: "🔗 Connection test successful!",
-          settings: localObsSettings,
-        }),
+      // Build WebSocket address
+      const host = localObsSettings.host || "localhost";
+      const port = localObsSettings.port || "4455";
+      const hasProtocol = host.startsWith("ws://") || host.startsWith("wss://");
+      const address = hasProtocol ? host : `ws://${host}:${port}`;
+
+      console.log(`[obs-test] Testing connection to ${address}...`);
+
+      // Connect to OBS (client-side, from the browser)
+      await obs.connect(address, localObsSettings.password || undefined, {
+        rpcVersion: 1,
       });
 
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Connection failed");
-      }
+      console.log(`[obs-test] Connected! Testing caption source...`);
+
+      // Test sending a caption to verify the source exists
+      await obs.call("SetInputSettings", {
+        inputName: localObsSettings.captionSource || "LiveCaptions",
+        inputSettings: { text: "🔗 Connection test successful!" },
+        overlay: true,
+      });
 
       setObsTestStatus("success");
       // Auto-save on successful test
       handleObsSave();
 
-      // Clear success message after 3 seconds
+      // Clear success message and disconnect after 3 seconds
       setTimeout(() => {
         setObsTestStatus("idle");
+        if (testObsRef.current === obs) {
+          try {
+            obs.disconnect();
+          } catch {
+            // Ignore
+          }
+          testObsRef.current = null;
+        }
       }, 3000);
     } catch (err) {
+      console.error("[obs-test] Connection failed:", err);
       setObsTestStatus("error");
-      setObsTestError(err instanceof Error ? err.message : "Connection failed");
+      
+      const message = err instanceof Error ? err.message : String(err);
+      // Provide more helpful error messages
+      if (message.includes("ETIMEDOUT") || message.includes("timeout")) {
+        setObsTestError(
+          `Cannot reach OBS at ${localObsSettings.host}:${localObsSettings.port}. ` +
+          "Make sure OBS is running and WebSocket server is enabled (Tools → WebSocket Server Settings)."
+        );
+      } else if (message.includes("Authentication")) {
+        setObsTestError("Authentication failed. Check your password in OBS WebSocket settings.");
+      } else if (message.includes("No input") || message.includes("not found")) {
+        setObsTestError(
+          `Text source "${localObsSettings.captionSource}" not found in OBS. ` +
+          "Create a Text (GDI+) source with this exact name."
+        );
+      } else {
+        setObsTestError(message);
+      }
+
+      // Clean up
+      try {
+        obs.disconnect();
+      } catch {
+        // Ignore
+      }
+      if (testObsRef.current === obs) {
+        testObsRef.current = null;
+      }
     }
   }, [localObsSettings, handleObsSave]);
 
@@ -470,9 +532,13 @@ export default function FirebaseApiSwitchComponent({
                                 className={`h-2 w-2 rounded-full ${
                                   obsStatus === "error"
                                     ? "bg-red-400"
-                                    : obsStatus === "sending"
-                                      ? "bg-amber-300"
-                                      : "bg-emerald-400"
+                                    : obsStatus === "connecting"
+                                      ? "bg-amber-300 animate-pulse"
+                                      : obsStatus === "sending"
+                                        ? "bg-amber-300"
+                                        : obsStatus === "connected"
+                                          ? "bg-emerald-400"
+                                          : "bg-white/40"
                                 }`}
                               />
                             )}

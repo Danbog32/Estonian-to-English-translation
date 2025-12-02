@@ -1,8 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import OBSWebSocket from "obs-websocket-js";
 
-export type ObsStreamingStatus = "idle" | "sending" | "error";
+export type ObsStreamingStatus =
+  | "idle"
+  | "connecting"
+  | "connected"
+  | "sending"
+  | "error";
 
 export type ObsConnectionSettings = {
   host: string;
@@ -80,6 +86,26 @@ function createLiveCaptions(
   return finalLines.join("\n");
 }
 
+/**
+ * Build WebSocket address for OBS connection.
+ * Works with both local IPs and hostnames.
+ */
+function buildObsAddress(host: string, port: string): string {
+  const hasProtocol = host.startsWith("ws://") || host.startsWith("wss://");
+  if (hasProtocol) {
+    return host;
+  }
+  return `ws://${host}:${port}`;
+}
+
+/**
+ * Hook that connects directly to OBS WebSocket from the browser.
+ *
+ * This client-side approach is required because:
+ * - OBS typically runs on a local/private network (e.g., 10.x.x.x, 192.168.x.x)
+ * - A production server cannot reach private network IPs
+ * - The browser runs on the user's machine, which CAN reach local OBS
+ */
 export function useObsCaptionPublisher(text: string, options: Options = {}) {
   const {
     debounceMs = DEFAULT_DEBOUNCE_MS,
@@ -93,19 +119,131 @@ export function useObsCaptionPublisher(text: string, options: Options = {}) {
   const [status, setStatus] = useState<ObsStreamingStatus>("idle");
   const [error, setError] = useState<string | null>(null);
 
+  const obsRef = useRef<OBSWebSocket | null>(null);
+  const connectionPromiseRef = useRef<Promise<void> | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
   const lastPayloadRef = useRef<string>("");
   const connectionSettingsRef = useRef(connectionSettings);
+  const isConnectedRef = useRef(false);
 
   // Keep connection settings ref updated
   useEffect(() => {
     connectionSettingsRef.current = connectionSettings;
   }, [connectionSettings]);
 
+  /**
+   * Ensure OBS WebSocket is connected.
+   * Reuses existing connection if already connected.
+   */
+  const ensureConnected = useCallback(async (): Promise<OBSWebSocket> => {
+    const settings = connectionSettingsRef.current;
+
+    if (!settings?.host || !settings?.port) {
+      throw new Error("OBS connection settings not configured");
+    }
+
+    // Already connected
+    if (obsRef.current && isConnectedRef.current) {
+      return obsRef.current;
+    }
+
+    // Connection in progress, wait for it
+    if (connectionPromiseRef.current) {
+      await connectionPromiseRef.current;
+      if (obsRef.current && isConnectedRef.current) {
+        return obsRef.current;
+      }
+      throw new Error("Connection failed");
+    }
+
+    // Create new connection
+    const obs = new OBSWebSocket();
+    obsRef.current = obs;
+
+    const address = buildObsAddress(settings.host, settings.port);
+    console.log(`[obs-client] Connecting to ${address}...`);
+    setStatus("connecting");
+    setError(null);
+
+    connectionPromiseRef.current = obs
+      .connect(address, settings.password || undefined, {
+        rpcVersion: 1,
+      })
+      .then(() => {
+        console.log(`[obs-client] Connected to OBS at ${address}`);
+        isConnectedRef.current = true;
+        setStatus("connected");
+        setError(null);
+      })
+      .catch((err) => {
+        console.error(`[obs-client] Connection failed:`, err);
+        isConnectedRef.current = false;
+        connectionPromiseRef.current = null;
+        obsRef.current = null;
+
+        const message = err instanceof Error ? err.message : String(err);
+        setStatus("error");
+        setError(`Cannot connect to OBS at ${address}: ${message}`);
+        throw err;
+      });
+
+    // Set up disconnect handler
+    obs.on("ConnectionClosed", () => {
+      console.log("[obs-client] Connection closed");
+      isConnectedRef.current = false;
+      connectionPromiseRef.current = null;
+      if (obsRef.current === obs) {
+        obsRef.current = null;
+        setStatus("idle");
+      }
+    });
+
+    obs.on("ConnectionError", (err) => {
+      console.error("[obs-client] Connection error:", err);
+      isConnectedRef.current = false;
+      connectionPromiseRef.current = null;
+      if (obsRef.current === obs) {
+        obsRef.current = null;
+        setStatus("error");
+        setError(`OBS connection error: ${err.message || "Unknown error"}`);
+      }
+    });
+
+    await connectionPromiseRef.current;
+    return obs;
+  }, []);
+
+  /**
+   * Disconnect from OBS WebSocket.
+   */
+  const disconnect = useCallback(() => {
+    if (obsRef.current) {
+      try {
+        obsRef.current.disconnect();
+      } catch {
+        // Ignore disconnect errors
+      }
+      obsRef.current = null;
+    }
+    isConnectedRef.current = false;
+    connectionPromiseRef.current = null;
+    lastPayloadRef.current = "";
+    setStatus("idle");
+    setError(null);
+  }, []);
+
+  /**
+   * Push caption text to OBS.
+   */
   const pushUpdate = useCallback(
     async (value: string, pushOptions: PushOptions = {}) => {
       const { force = false } = pushOptions;
+      const settings = connectionSettingsRef.current;
+
+      if (!settings?.captionSource) {
+        setError("OBS caption source not configured");
+        return;
+      }
 
       // Create TV-style live captions (word-based, multi-line)
       const captionText = createLiveCaptions(
@@ -120,44 +258,40 @@ export function useObsCaptionPublisher(text: string, options: Options = {}) {
       }
 
       lastPayloadRef.current = captionText;
-      abortRef.current?.abort();
-      const controller = new AbortController();
-      abortRef.current = controller;
-
-      setStatus("sending");
-      setError(null);
 
       try {
-        const response = await fetch("/api/obs/captions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            text: captionText,
-            settings: connectionSettingsRef.current,
-          }),
-          signal: controller.signal,
-          cache: "no-store",
+        const obs = await ensureConnected();
+
+        setStatus("sending");
+
+        await obs.call("SetInputSettings", {
+          inputName: settings.captionSource,
+          inputSettings: { text: captionText },
+          overlay: true,
         });
 
-        if (!response.ok) {
-          const data = await response.json().catch(() => ({}));
-          throw new Error(
-            data.error || `OBS update failed with status ${response.status}`
-          );
+        setStatus("connected");
+        setError(null);
+        console.log(
+          `[obs-client] Updated caption source "${settings.captionSource}"`
+        );
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Unknown OBS error";
+
+        // Only set error if it's not a connection-in-progress situation
+        if (!message.includes("Connection failed")) {
+          setStatus("error");
+          setError(message);
         }
 
-        setStatus("idle");
-      } catch (err) {
-        if (controller.signal.aborted) {
-          return;
-        }
-        setStatus("error");
-        setError(err instanceof Error ? err.message : "Unknown OBS error");
+        console.error("[obs-client] Failed to update captions:", err);
       }
     },
-    [maxWords, maxCharsPerLine, maxLines]
+    [ensureConnected, maxWords, maxCharsPerLine, maxLines]
   );
 
+  // Auto-push when text changes (with debounce)
   useEffect(() => {
     if (!enabled) {
       return;
@@ -179,27 +313,26 @@ export function useObsCaptionPublisher(text: string, options: Options = {}) {
     };
   }, [debounceMs, enabled, pushUpdate, text]);
 
+  // Handle enable/disable state changes
   useEffect(() => {
     if (!enabled) {
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
         debounceRef.current = null;
       }
-      abortRef.current?.abort();
-      lastPayloadRef.current = "";
-      setStatus("idle");
-      setError(null);
+      disconnect();
     }
-  }, [enabled]);
+  }, [enabled, disconnect]);
 
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
-      abortRef.current?.abort();
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
       }
+      disconnect();
     };
-  }, []);
+  }, [disconnect]);
 
   const toggle = useCallback(() => {
     setEnabled((prev) => !prev);

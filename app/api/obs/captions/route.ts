@@ -1,6 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import OBSWebSocket, { EventSubscription } from "obs-websocket-js";
 
+/**
+ * IMPORTANT: This server-side route only works in LOCAL DEVELOPMENT.
+ * 
+ * In production, the Next.js server runs in the cloud and CANNOT reach
+ * private/local network IPs (e.g., 10.x.x.x, 192.168.x.x, localhost).
+ * 
+ * For production use, the client-side hook (useObsCaptionPublisher) 
+ * connects directly from the browser, which runs on the user's local
+ * machine and CAN reach local OBS instances.
+ * 
+ * This route is kept for backwards compatibility and local testing.
+ */
+
 // Default env var fallbacks
 const DEFAULT_HOST = process.env.OBS_HOST ?? "localhost";
 const DEFAULT_PORT = process.env.OBS_PORT ?? "4455";
