@@ -11,6 +11,7 @@ import FirebaseApiSwitchComponent, {
   type ObsConnectionSettings,
 } from "./FirebaseApiSwitchComponent";
 import { LanguageCode, SOURCE_LANGUAGES } from "../utils/languages";
+import type { ObsStreamingStatus } from "../hooks/useObsCaptionPublisher";
 
 type ViewMode = "left" | "split" | "right";
 
@@ -27,7 +28,7 @@ type HeaderControlsProps = {
   disabled?: boolean;
   // OBS props to pass to FirebaseApiSwitchComponent
   obsEnabled?: boolean;
-  obsStatus?: "idle" | "sending" | "error";
+  obsStatus?: ObsStreamingStatus;
   obsError?: string | null;
   obsSettings?: ObsConnectionSettings;
   onObsEnabledChange?: (enabled: boolean) => void;

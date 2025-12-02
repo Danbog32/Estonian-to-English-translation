@@ -23,7 +23,6 @@ export default function ResizableSplit({
   gutterWidth = 10,
   className = "",
   viewMode: externalViewMode,
-  onViewModeChange,
 }: ResizableSplitProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [leftFraction, setLeftFraction] = useState(() => {
@@ -32,14 +31,10 @@ export default function ResizableSplit({
     return initialLeftFraction;
   });
   const isDraggingRef = useRef(false);
-  const [internalViewMode, setInternalViewMode] = useState<
-    "left" | "split" | "right"
-  >("split");
   const lastSplitFractionRef = useRef(leftFraction);
 
-  // Use external view mode if provided, otherwise use internal state
-  const viewMode = externalViewMode ?? internalViewMode;
-  const _setViewMode = onViewModeChange ?? setInternalViewMode;
+  // Use external view mode (required prop)
+  const viewMode = externalViewMode ?? "split";
 
   const onDrag = useCallback(
     (clientX: number) => {

@@ -432,7 +432,7 @@ export default function FirebaseApiSwitchComponent({
         }}
       >
         <ModalContent>
-          {(onClose) => (
+          {() => (
             <>
               <ModalHeader className="flex flex-col gap-1 text-white">
                 <h2 className="text-lg font-semibold uppercase tracking-widest font-mono">

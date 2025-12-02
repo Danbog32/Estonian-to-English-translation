@@ -13,7 +13,7 @@ import WordDisplay from "./WordDisplay";
 import LangDropdown from "./LangDropdown";
 import { useObsCaptionPublisher } from "../hooks/useObsCaptionPublisher";
 import { AudioLevelIndicator } from "./AudioLevelIndicator";
-import FirebaseApiSwitchComponent, {
+import {
   getStoredObsSettings,
   storeObsSettings,
   type ObsConnectionSettings,

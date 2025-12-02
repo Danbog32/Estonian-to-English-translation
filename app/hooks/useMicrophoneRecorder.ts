@@ -248,7 +248,6 @@ export function useMicrophoneRecorder(options?: UseMicrophoneRecorderOptions) {
   }, [
     cleanup,
     handleError,
-    isRecording,
     targetChunkDurationMs,
     targetSampleRate,
     options,
