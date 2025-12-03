@@ -55,7 +55,7 @@ export const metadata: Metadata = {
     address: false,
     telephone: false,
   },
-  metadataBase: new URL("https://est2eng.vercel.app"),
+  metadataBase: new URL("https://est2eng.cs.taltech.ee"),
   alternates: {
     canonical: "/",
     languages: {
@@ -66,7 +66,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     locale: "en_US",
-    url: "https://estonian-to-english-translation.vercel.app",
+    url: "https://est2eng.cs.taltech.ee",
     siteName: "Estonian to English Translator",
     title: "Estonian to English Translator | Real-time Speech Translation",
     description:
