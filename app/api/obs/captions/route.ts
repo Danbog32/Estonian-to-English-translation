@@ -41,11 +41,20 @@ function getConnectionKey(settings: ConnectionSettings): string {
 }
 
 function buildObsAddress(host: string, port: string): string {
-  const hasProtocol = host.startsWith("ws://") || host.startsWith("wss://");
-  if (hasProtocol) {
-    return host;
+  const trimmed = host.trim();
+  if (!trimmed) {
+    return `ws://localhost:${port}`;
   }
-  return `ws://${host}:${port}`;
+  if (trimmed.startsWith("ws://") || trimmed.startsWith("wss://")) {
+    return trimmed;
+  }
+  if (trimmed.startsWith("http://")) {
+    return `ws://${trimmed.slice("http://".length)}`;
+  }
+  if (trimmed.startsWith("https://")) {
+    return `wss://${trimmed.slice("https://".length)}`;
+  }
+  return `ws://${trimmed}:${port}`;
 }
 
 function getOrCreateConnection(settings: ConnectionSettings) {

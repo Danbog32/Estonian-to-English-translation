@@ -10,11 +10,14 @@ export type ObsStreamingStatus =
   | "sending"
   | "error";
 
+export type ObsTransport = "direct" | "server";
+
 export type ObsConnectionSettings = {
   host: string;
   port: string;
   password: string;
   captionSource: string;
+  transport?: ObsTransport;
 };
 
 type Options = {
@@ -91,11 +94,60 @@ function createLiveCaptions(
  * Works with both local IPs and hostnames.
  */
 function buildObsAddress(host: string, port: string): string {
-  const hasProtocol = host.startsWith("ws://") || host.startsWith("wss://");
-  if (hasProtocol) {
-    return host;
+  const trimmed = host.trim();
+  if (!trimmed) {
+    return `ws://localhost:${port}`;
   }
-  return `ws://${host}:${port}`;
+  if (trimmed.startsWith("ws://") || trimmed.startsWith("wss://")) {
+    return trimmed;
+  }
+  if (trimmed.startsWith("http://")) {
+    return `ws://${trimmed.slice("http://".length)}`;
+  }
+  if (trimmed.startsWith("https://")) {
+    return `wss://${trimmed.slice("https://".length)}`;
+  }
+  return `ws://${trimmed}:${port}`;
+}
+
+function isSecurePage(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  return window.location.protocol === "https:";
+}
+
+function isInsecureObsAddress(address: string): boolean {
+  return address.startsWith("ws://");
+}
+
+async function postObsCaption(
+  captionText: string,
+  settings: ObsConnectionSettings
+): Promise<void> {
+  const response = await fetch("/api/obs/captions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      text: captionText,
+      settings: {
+        host: settings.host,
+        port: settings.port,
+        password: settings.password,
+        captionSource: settings.captionSource,
+      },
+    }),
+  });
+  const data = (await response.json().catch(() => null)) as
+    | { error?: string }
+    | null;
+  if (!response.ok) {
+    const message =
+      typeof data?.error === "string"
+        ? data.error
+        : `Server relay failed (${response.status})`;
+    throw new Error(message);
+  }
 }
 
 /**
@@ -129,6 +181,16 @@ export function useObsCaptionPublisher(text: string, options: Options = {}) {
   // Keep connection settings ref updated
   useEffect(() => {
     connectionSettingsRef.current = connectionSettings;
+    if (connectionSettings?.transport === "server" && obsRef.current) {
+      try {
+        obsRef.current.disconnect();
+      } catch {
+        // Ignore disconnect errors
+      }
+      obsRef.current = null;
+      isConnectedRef.current = false;
+      connectionPromiseRef.current = null;
+    }
   }, [connectionSettings]);
 
   /**
@@ -156,11 +218,19 @@ export function useObsCaptionPublisher(text: string, options: Options = {}) {
       throw new Error("Connection failed");
     }
 
+    const address = buildObsAddress(settings.host, settings.port);
+    if (isSecurePage() && isInsecureObsAddress(address)) {
+      const message =
+        "This page is HTTPS so the browser blocks ws:// connections. " +
+        "Run the app locally over http, or use a WSS proxy and set host to wss://.";
+      setStatus("error");
+      setError(message);
+      throw new Error(message);
+    }
+
     // Create new connection
     const obs = new OBSWebSocket();
     obsRef.current = obs;
-
-    const address = buildObsAddress(settings.host, settings.port);
     console.log(`[obs-client] Connecting to ${address}...`);
     setStatus("connecting");
     setError(null);
@@ -239,8 +309,16 @@ export function useObsCaptionPublisher(text: string, options: Options = {}) {
     async (value: string, pushOptions: PushOptions = {}) => {
       const { force = false } = pushOptions;
       const settings = connectionSettingsRef.current;
+      const transport: ObsTransport = settings?.transport ?? "direct";
+
+      if (!settings?.host || !settings?.port) {
+        setStatus("error");
+        setError("OBS connection settings not configured");
+        return;
+      }
 
       if (!settings?.captionSource) {
+        setStatus("error");
         setError("OBS caption source not configured");
         return;
       }
@@ -258,6 +336,26 @@ export function useObsCaptionPublisher(text: string, options: Options = {}) {
       }
 
       lastPayloadRef.current = captionText;
+
+      if (transport === "server") {
+        try {
+          setStatus("sending");
+          setError(null);
+          await postObsCaption(captionText, settings);
+          setStatus("connected");
+          setError(null);
+          console.log(
+            `[obs-server] Updated caption source "${settings.captionSource}"`
+          );
+        } catch (err) {
+          const message =
+            err instanceof Error ? err.message : "Unknown OBS error";
+          setStatus("error");
+          setError(message);
+          console.error("[obs-server] Failed to update captions:", err);
+        }
+        return;
+      }
 
       try {
         const obs = await ensureConnected();

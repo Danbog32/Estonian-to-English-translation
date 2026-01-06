@@ -22,11 +22,14 @@ declare global {
   }
 }
 
+type ObsTransport = "direct" | "server";
+
 export type ObsConnectionSettings = {
   host: string;
   port: string;
   password: string;
   captionSource: string;
+  transport?: ObsTransport;
 };
 
 type ObsProps = {
@@ -119,11 +122,57 @@ function Switch({
   );
 }
 
+function buildObsAddress(host: string, port: string): string {
+  const trimmed = host.trim();
+  if (!trimmed) {
+    return `ws://localhost:${port}`;
+  }
+  if (trimmed.startsWith("ws://") || trimmed.startsWith("wss://")) {
+    return trimmed;
+  }
+  if (trimmed.startsWith("http://")) {
+    return `ws://${trimmed.slice("http://".length)}`;
+  }
+  if (trimmed.startsWith("https://")) {
+    return `wss://${trimmed.slice("https://".length)}`;
+  }
+  return `ws://${trimmed}:${port}`;
+}
+
+function normalizeObsHost(host: string): string {
+  const trimmed = host.trim().toLowerCase();
+  const withoutProtocol = trimmed
+    .replace(/^wss?:\/\//, "")
+    .replace(/^https?:\/\//, "");
+  const withoutPath = withoutProtocol.split("/")[0] ?? "";
+  return withoutPath.split(":")[0] ?? "";
+}
+
+function isPrivateHost(host: string): boolean {
+  const hostname = normalizeObsHost(host);
+  if (!hostname) return false;
+  if (hostname === "localhost" || hostname.endsWith(".local")) return true;
+  if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) return false;
+
+  const parts = hostname.split(".").map((part) => Number(part));
+  if (parts.some((part) => Number.isNaN(part))) return false;
+
+  const [a, b] = parts;
+  if (a === 10) return true;
+  if (a === 127) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+
+  return false;
+}
+
 const DEFAULT_OBS_SETTINGS: ObsConnectionSettings = {
   host: "localhost",
   port: "4455",
   password: "",
   captionSource: "LiveCaptions",
+  transport: "direct",
 };
 
 export function getStoredObsSettings(): ObsConnectionSettings {
@@ -132,7 +181,9 @@ export function getStoredObsSettings(): ObsConnectionSettings {
     const stored = localStorage.getItem("obs-settings");
     if (stored) {
       const parsed = JSON.parse(stored);
-      return { ...DEFAULT_OBS_SETTINGS, ...parsed };
+      const transport: ObsTransport =
+        parsed?.transport === "server" ? "server" : "direct";
+      return { ...DEFAULT_OBS_SETTINGS, ...parsed, transport };
     }
   } catch {
     // ignore parse errors
@@ -172,6 +223,22 @@ export default function FirebaseApiSwitchComponent({
     "idle" | "testing" | "success" | "error"
   >("idle");
   const [obsTestError, setObsTestError] = useState<string | null>(null);
+  const transport: ObsTransport = localObsSettings.transport ?? "direct";
+  const hostForAddress = localObsSettings.host || "localhost";
+  const portForAddress = localObsSettings.port || "4455";
+  const obsAddress = buildObsAddress(hostForAddress, portForAddress);
+  const isSecurePage =
+    typeof window !== "undefined" && window.location.protocol === "https:";
+  const isHostedPage =
+    typeof window !== "undefined" &&
+    window.location.hostname !== "localhost" &&
+    window.location.hostname !== "127.0.0.1";
+  const showHttpsWarning =
+    transport === "direct" && isSecurePage && obsAddress.startsWith("ws://");
+  const showServerPrivateWarning =
+    transport === "server" &&
+    isHostedPage &&
+    isPrivateHost(localObsSettings.host);
 
   // Sync local OBS settings when props change
   useEffect(() => {
@@ -205,6 +272,23 @@ export default function FirebaseApiSwitchComponent({
     setObsTestStatus("testing");
     setObsTestError(null);
 
+    const host = localObsSettings.host || "localhost";
+    const port = localObsSettings.port || "4455";
+    const transport: ObsTransport = localObsSettings.transport ?? "direct";
+    const address = buildObsAddress(host, port);
+    const isSecurePage =
+      typeof window !== "undefined" && window.location.protocol === "https:";
+    const isInsecureObsAddress = address.startsWith("ws://");
+
+    if (transport === "direct" && isSecurePage && isInsecureObsAddress) {
+      setObsTestStatus("error");
+      setObsTestError(
+        "Browser blocked ws:// because this page is HTTPS. " +
+          "Run the app locally over http, use a WSS proxy, or switch to Server Relay."
+      );
+      return;
+    }
+
     // Clean up previous test connection
     if (testObsRef.current) {
       try {
@@ -215,16 +299,50 @@ export default function FirebaseApiSwitchComponent({
       testObsRef.current = null;
     }
 
+    if (transport === "server") {
+      try {
+        const response = await fetch("/api/obs/captions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text: "Connection test successful!",
+            settings: {
+              host,
+              port,
+              password: localObsSettings.password || "",
+              captionSource: localObsSettings.captionSource || "LiveCaptions",
+            },
+          }),
+        });
+        const data = (await response.json().catch(() => null)) as
+          | { error?: string }
+          | null;
+        if (!response.ok) {
+          const message =
+            typeof data?.error === "string"
+              ? data.error
+              : `Server relay failed (${response.status})`;
+          throw new Error(message);
+        }
+
+        setObsTestStatus("success");
+        handleObsSave();
+        setTimeout(() => {
+          setObsTestStatus("idle");
+        }, 3000);
+      } catch (err) {
+        console.error("[obs-test] Server relay failed:", err);
+        setObsTestStatus("error");
+        const message = err instanceof Error ? err.message : String(err);
+        setObsTestError(message);
+      }
+      return;
+    }
+
     const obs = new OBSWebSocket();
     testObsRef.current = obs;
 
     try {
-      // Build WebSocket address
-      const host = localObsSettings.host || "localhost";
-      const port = localObsSettings.port || "4455";
-      const hasProtocol = host.startsWith("ws://") || host.startsWith("wss://");
-      const address = hasProtocol ? host : `ws://${host}:${port}`;
-
       console.log(`[obs-test] Testing connection to ${address}...`);
 
       // Connect to OBS (client-side, from the browser)
@@ -260,20 +378,22 @@ export default function FirebaseApiSwitchComponent({
     } catch (err) {
       console.error("[obs-test] Connection failed:", err);
       setObsTestStatus("error");
-      
+
       const message = err instanceof Error ? err.message : String(err);
       // Provide more helpful error messages
       if (message.includes("ETIMEDOUT") || message.includes("timeout")) {
         setObsTestError(
           `Cannot reach OBS at ${localObsSettings.host}:${localObsSettings.port}. ` +
-          "Make sure OBS is running and WebSocket server is enabled (Tools → WebSocket Server Settings)."
+            "Make sure OBS is running and WebSocket server is enabled (Tools → WebSocket Server Settings)."
         );
       } else if (message.includes("Authentication")) {
-        setObsTestError("Authentication failed. Check your password in OBS WebSocket settings.");
+        setObsTestError(
+          "Authentication failed. Check your password in OBS WebSocket settings."
+        );
       } else if (message.includes("No input") || message.includes("not found")) {
         setObsTestError(
           `Text source "${localObsSettings.captionSource}" not found in OBS. ` +
-          "Create a Text (GDI+) source with this exact name."
+            "Create a Text (GDI+) source with this exact name."
         );
       } else {
         setObsTestError(message);
@@ -590,6 +710,60 @@ export default function FirebaseApiSwitchComponent({
                               />
                             </div>
                           </div>
+
+                          {/* Connection Mode */}
+                          <div>
+                            <label
+                              htmlFor="obs-transport"
+                              className="mb-1.5 block text-xs font-medium text-white/60 font-mono uppercase tracking-wider"
+                            >
+                              Connection Mode
+                            </label>
+                            <select
+                              id="obs-transport"
+                              value={transport}
+                              onChange={(e) =>
+                                handleObsInputChange(
+                                  "transport",
+                                  e.target.value
+                                )
+                              }
+                              className="w-full rounded-lg border border-white/10 bg-[#0f1419] px-3 py-2.5 text-sm text-white outline-none transition-colors focus:border-emerald-400/50 focus:ring-1 focus:ring-emerald-400/20 font-mono"
+                            >
+                              <option value="direct">
+                                Direct (browser WebSocket)
+                              </option>
+                              <option value="server">
+                                Server relay (Next.js API)
+                              </option>
+                            </select>
+                            <p className="mt-1.5 text-xs text-white/40 font-mono">
+                              Direct connects from your browser. Server relay
+                              requires OBS to be reachable from the server.
+                            </p>
+                          </div>
+
+                          {showHttpsWarning && (
+                            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5">
+                              <p className="text-xs text-amber-100/80 font-mono">
+                                HTTPS pages cannot connect to ws://. Run the
+                                app locally over http, use a WSS proxy and set
+                                host to wss://, or switch to Server Relay. For
+                                hosted use, add the Cast Captions link as an
+                                OBS Browser Source.
+                              </p>
+                            </div>
+                          )}
+
+                          {showServerPrivateWarning && (
+                            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5">
+                              <p className="text-xs text-amber-100/80 font-mono">
+                                Server relay cannot reach private IPs from a
+                                hosted deployment. Run the app locally or
+                                expose OBS with a public address.
+                              </p>
+                            </div>
+                          )}
 
                           {/* Password */}
                           <div>
