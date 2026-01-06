@@ -1,23 +1,24 @@
-// [captionName]/page.jsx
+// [captionName]/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { db } from "../../firebaseConfig"; // Adjust the path if necessary
+import { db } from "../../firebaseConfig";
 import { doc, onSnapshot } from "firebase/firestore";
 import Image from "next/image";
 import { useAutoScroll } from "../hooks/useAutoScroll";
 
 export default function LiveCaptionsPage() {
   const params = useParams();
-  const captionName = params.captionName;
+  const captionName = params.captionName as string;
   const [captionText, setCaptionText] = useState("");
-  const { scrollRef, isScrolledUp, scrollToBottom } = useAutoScroll({
-    content: captionText,
-    threshold: 50,
-    buttonThreshold: 200,
-    enabled: true,
-  });
+  const { scrollRef, isScrolledUp, scrollToBottom } =
+    useAutoScroll<HTMLDivElement>({
+      content: captionText,
+      threshold: 50,
+      buttonThreshold: 200,
+      enabled: true,
+    });
 
   useEffect(() => {
     if (!captionName) return;

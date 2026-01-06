@@ -13,6 +13,7 @@
     "@heroui/dropdown": "^2.3.27",
     "@heroui/input": "^2.4.27",
     "@heroui/modal": "^2.2.24",
+    "@heroui/react": "^2.8.7",
     "@heroui/scroll-shadow": "^2.3.17",
     "@heroui/select": "^2.4.28",
     "@heroui/system": "^2.4.23",
