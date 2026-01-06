@@ -19,11 +19,9 @@ export type ObsConnectionSettings = {
 
 type Options = {
   debounceMs?: number;
-  /** Maximum number of words to display (default: 16) */
-  maxWords?: number;
   /** Maximum characters per line before wrapping (default: 45) */
   maxCharsPerLine?: number;
-  /** Maximum number of lines (default: 2) */
+  /** Maximum number of lines to display (default: 3) */
   maxLines?: number;
   /** Connection settings for OBS WebSocket */
   connectionSettings?: ObsConnectionSettings;
@@ -34,36 +32,35 @@ type PushOptions = {
 };
 
 const DEFAULT_DEBOUNCE_MS = 250;
-const DEFAULT_MAX_WORDS = 16;
 const DEFAULT_MAX_CHARS_PER_LINE = 45;
-const DEFAULT_MAX_LINES = 2;
+const DEFAULT_MAX_LINES = 3;
 
 /**
- * Creates TV-style live captions optimized for readability:
- * - Takes only the last N words (rolling window)
- * - Wraps into multiple lines using \n
- * - Each line respects a max character width
- * - Returns only the last N lines
+ * Creates stable captions based on the previous project's algorithm:
+ * - Takes the full text (no word limit) to maintain context
+ * - Breaks text into lines based on character width
+ * - Shows only the last N lines to prevent shifting
  *
- * This approach works regardless of punctuation, perfect for live transcription.
+ * This approach prevents words from constantly shifting around because
+ * lines remain stable until they naturally scroll off as new content arrives.
  */
-function createLiveCaptions(
+function createStableCaptions(
   text: string,
-  maxWords: number,
   maxCharsPerLine: number,
   maxLines: number
 ): string {
-  const words = text.trim().split(/\s+/).filter(Boolean);
+  const normalized = text.trim().replace(/(\r\n|\n|\r)/gm, "");
+  if (!normalized) return "";
+
+  const words = normalized.split(/\s+/).filter(Boolean);
   if (words.length === 0) return "";
 
-  // Take only the last N words for a rolling window effect
-  const recentWords = words.slice(-maxWords);
-
   // Build lines by wrapping at maxCharsPerLine
+  // This maintains the full text context, preventing shifting
   const lines: string[] = [];
   let currentLine = "";
 
-  for (const word of recentWords) {
+  for (const word of words) {
     const testLine = currentLine ? `${currentLine} ${word}` : word;
 
     if (testLine.length > maxCharsPerLine && currentLine) {
@@ -80,7 +77,8 @@ function createLiveCaptions(
     lines.push(currentLine);
   }
 
-  // Keep only the last N lines (most recent text)
+  // Show only the last N lines (most recent text)
+  // This prevents shifting because earlier lines remain stable
   const finalLines = lines.slice(-maxLines);
 
   return finalLines.join("\n");
@@ -109,7 +107,6 @@ function buildObsAddress(host: string, port: string): string {
 export function useObsCaptionPublisher(text: string, options: Options = {}) {
   const {
     debounceMs = DEFAULT_DEBOUNCE_MS,
-    maxWords = DEFAULT_MAX_WORDS,
     maxCharsPerLine = DEFAULT_MAX_CHARS_PER_LINE,
     maxLines = DEFAULT_MAX_LINES,
     connectionSettings,
@@ -245,10 +242,9 @@ export function useObsCaptionPublisher(text: string, options: Options = {}) {
         return;
       }
 
-      // Create TV-style live captions (word-based, multi-line)
-      const captionText = createLiveCaptions(
+      // Create stable captions (full text, line-based, show last N lines)
+      const captionText = createStableCaptions(
         value,
-        maxWords,
         maxCharsPerLine,
         maxLines
       );
@@ -288,7 +284,7 @@ export function useObsCaptionPublisher(text: string, options: Options = {}) {
         console.error("[obs-client] Failed to update captions:", err);
       }
     },
-    [ensureConnected, maxWords, maxCharsPerLine, maxLines]
+    [ensureConnected, maxCharsPerLine, maxLines]
   );
 
   // Auto-push when text changes (with debounce)

@@ -397,9 +397,8 @@ export default function Transcriber() {
     setEnabled: setObsStreamingEnabled,
   } = useObsCaptionPublisher(targetDisplay, {
     debounceMs: 250,
-    maxWords: 16, // Show only last 16 words (TV caption style)
     maxCharsPerLine: 45, // Wrap lines at ~45 chars
-    maxLines: 2, // 2 lines max with \n between them
+    maxLines: 3, // Show last 3 lines (stable captions, prevents shifting)
     connectionSettings: obsSettings,
   });
 
@@ -695,10 +694,7 @@ export default function Transcriber() {
       <div className="pointer-events-none fixed inset-x-0 bottom-4 md:bottom-6 flex items-center justify-center pb-safe">
         <div className="pointer-events-auto flex items-center gap-2 md:gap-2 rounded-full border border-white/10 bg-white/5 px-3 md:px-2 py-2 md:py-1.5 backdrop-blur-md shadow-lg">
           {mic.isRecording ? (
-            <AudioLevelIndicator
-              level={mic.audioLevel}
-              className="mx-1"
-            />
+            <AudioLevelIndicator level={mic.audioLevel} className="mx-1" />
           ) : (
             <span className="inline-flex h-2.5 w-2.5 md:h-2 md:w-2 rounded-full bg-white/30" />
           )}
