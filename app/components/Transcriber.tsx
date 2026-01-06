@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@heroui/button";
-import { addToast } from "@heroui/react";
 import { useAsrWebSocket } from "../hooks/useAsrWebSocket";
 import { useMicrophoneRecorder } from "../hooks/useMicrophoneRecorder";
 import { useAutoScroll } from "../hooks/useAutoScroll";
@@ -413,7 +412,6 @@ export default function Transcriber() {
   );
 
   const targetWords = targetWordsRef.current;
-  const lastToastErrorRef = useRef<string | null>(null);
 
   const fadeStart = useMemo(() => {
     return Math.max(0, targetWords.length - lastTargetBatchSizeRef.current);
@@ -489,24 +487,16 @@ export default function Transcriber() {
     enabled: true,
   });
 
-  useEffect(() => {
-    if (obsStreamingEnabled && obsStreamingError) {
-      // Only show toast if error message changed
-      if (lastToastErrorRef.current !== obsStreamingError) {
-        lastToastErrorRef.current = obsStreamingError;
-        addToast({
-          title: "OBS sync issue",
-          description: obsStreamingError,
-          color: "danger",
-        });
-      }
-    } else {
-      lastToastErrorRef.current = null;
-    }
-  }, [obsStreamingEnabled, obsStreamingError]);
-
   return (
     <div className="relative h-screen w-full bg-[radial-gradient(1200px_600px_at_-10%_-10%,#0f172a_0%,#0b0f12_40%,#050607_80%)] text-neutral-100 overflow-hidden">
+      {obsStreamingEnabled && obsStreamingError && (
+        <div className="fixed right-4 top-4 z-40 max-w-sm rounded-lg border border-red-500/60 bg-red-500/10 px-4 py-2 text-sm text-red-100 shadow-lg">
+          <p className="font-semibold uppercase tracking-wide text-red-200">
+            OBS sync issue
+          </p>
+          <p className="text-red-100/80">{obsStreamingError}</p>
+        </div>
+      )}
       {/* Mobile View Switcher & Language Selector */}
       <div className="md:hidden fixed top-0 left-0 right-0 z-30 flex items-center justify-center pt-safe bg-gradient-to-b from-[#0f172a]/95 via-[#0b0f12]/90 to-transparent backdrop-blur-sm pb-3">
         <div className="flex w-full flex-col items-center gap-3 px-4">
@@ -705,7 +695,10 @@ export default function Transcriber() {
       <div className="pointer-events-none fixed inset-x-0 bottom-4 md:bottom-6 flex items-center justify-center pb-safe">
         <div className="pointer-events-auto flex items-center gap-2 md:gap-2 rounded-full border border-white/10 bg-white/5 px-3 md:px-2 py-2 md:py-1.5 backdrop-blur-md shadow-lg">
           {mic.isRecording ? (
-            <AudioLevelIndicator level={mic.audioLevel} className="mx-1" />
+            <AudioLevelIndicator
+              level={mic.audioLevel}
+              className="mx-1"
+            />
           ) : (
             <span className="inline-flex h-2.5 w-2.5 md:h-2 md:w-2 rounded-full bg-white/30" />
           )}

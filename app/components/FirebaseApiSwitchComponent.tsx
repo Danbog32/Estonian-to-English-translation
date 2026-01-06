@@ -314,9 +314,9 @@ export default function FirebaseApiSwitchComponent({
             },
           }),
         });
-        const data = (await response.json().catch(() => null)) as {
-          error?: string;
-        } | null;
+        const data = (await response.json().catch(() => null)) as
+          | { error?: string }
+          | null;
         if (!response.ok) {
           const message =
             typeof data?.error === "string"
@@ -390,10 +390,7 @@ export default function FirebaseApiSwitchComponent({
         setObsTestError(
           "Authentication failed. Check your password in OBS WebSocket settings."
         );
-      } else if (
-        message.includes("No input") ||
-        message.includes("not found")
-      ) {
+      } else if (message.includes("No input") || message.includes("not found")) {
         setObsTestError(
           `Text source "${localObsSettings.captionSource}" not found in OBS. ` +
             "Create a Text (GDI+) source with this exact name."
@@ -563,7 +560,7 @@ export default function FirebaseApiSwitchComponent({
                 </h2>
               </ModalHeader>
               <ModalBody>
-                <div className="flex flex-col gap-4 max-h-[80vh] overflow-auto hide-scrollbar">
+                <div className="flex flex-col gap-4">
                   {/* Firebase/Web Casting Section */}
                   <Switch
                     style={{ touchAction: "pan-y" }}
@@ -749,11 +746,11 @@ export default function FirebaseApiSwitchComponent({
                           {showHttpsWarning && (
                             <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5">
                               <p className="text-xs text-amber-100/80 font-mono">
-                                HTTPS pages cannot connect to ws://. Run the app
-                                locally over http, use a WSS proxy and set host
-                                to wss://, or switch to Server Relay. For hosted
-                                use, add the Cast Captions link as an OBS
-                                Browser Source.
+                                HTTPS pages cannot connect to ws://. Run the
+                                app locally over http, use a WSS proxy and set
+                                host to wss://, or switch to Server Relay. For
+                                hosted use, add the Cast Captions link as an
+                                OBS Browser Source.
                               </p>
                             </div>
                           )}
@@ -762,8 +759,8 @@ export default function FirebaseApiSwitchComponent({
                             <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5">
                               <p className="text-xs text-amber-100/80 font-mono">
                                 Server relay cannot reach private IPs from a
-                                hosted deployment. Run the app locally or expose
-                                OBS with a public address.
+                                hosted deployment. Run the app locally or
+                                expose OBS with a public address.
                               </p>
                             </div>
                           )}
