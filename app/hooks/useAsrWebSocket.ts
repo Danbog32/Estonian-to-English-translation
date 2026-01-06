@@ -149,10 +149,18 @@ export function useAsrWebSocket(options?: UseAsrWebSocketOptions) {
               console.log("[ASR] Session ended marker received");
               const currentPartial = partialTextRef.current;
               if (currentPartial) {
-                console.log("[ASR] Finalizing partial text before session end:", currentPartial);
+                console.log(
+                  "[ASR] Finalizing partial text before session end:",
+                  currentPartial
+                );
                 callbacksRef.current?.onFlushComplete?.(currentPartial);
               }
-              setPartialText("");
+              // Clear partialText after a brief delay to allow the callback
+              // to update transcript state first, preventing the Estonian text
+              // from disappearing during the state update race condition
+              setTimeout(() => {
+                setPartialText("");
+              }, 0);
               partialTextRef.current = "";
               hasSentAudioRef.current = false;
               return;
@@ -175,7 +183,12 @@ export function useAsrWebSocket(options?: UseAsrWebSocketOptions) {
               if (text) {
                 callbacksRef.current?.onFinal?.(text);
               }
-              setPartialText("");
+              // Clear partialText after a brief delay to allow the callback
+              // to update transcript state first, preventing the Estonian text
+              // from disappearing during the state update race condition
+              setTimeout(() => {
+                setPartialText("");
+              }, 0);
               partialTextRef.current = "";
               hasSentAudioRef.current = false;
             } else {
