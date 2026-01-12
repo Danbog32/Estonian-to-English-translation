@@ -399,6 +399,8 @@ export default function Transcriber() {
     debounceMs: 250,
     maxCharsPerLine: 45, // Wrap lines at ~45 chars
     maxLines: 3, // Show last 3 lines (stable captions, prevents shifting)
+    queueDelayMs: 120,
+    splitParts: 2,
     connectionSettings: obsSettings,
   });
 

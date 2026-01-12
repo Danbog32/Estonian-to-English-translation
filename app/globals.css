@@ -116,6 +116,10 @@ body {
   background-color: #718096;
 }
 
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 /* Safe area utilities for mobile devices */
 .pt-safe {
   padding-top: max(1rem, var(--sat));

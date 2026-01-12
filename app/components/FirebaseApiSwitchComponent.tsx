@@ -260,20 +260,25 @@ export default function FirebaseApiSwitchComponent({
     } catch (err) {
       console.error("[obs-test] Connection failed:", err);
       setObsTestStatus("error");
-      
+
       const message = err instanceof Error ? err.message : String(err);
       // Provide more helpful error messages
       if (message.includes("ETIMEDOUT") || message.includes("timeout")) {
         setObsTestError(
           `Cannot reach OBS at ${localObsSettings.host}:${localObsSettings.port}. ` +
-          "Make sure OBS is running and WebSocket server is enabled (Tools → WebSocket Server Settings)."
+            "Make sure OBS is running and WebSocket server is enabled (Tools → WebSocket Server Settings)."
         );
       } else if (message.includes("Authentication")) {
-        setObsTestError("Authentication failed. Check your password in OBS WebSocket settings.");
-      } else if (message.includes("No input") || message.includes("not found")) {
+        setObsTestError(
+          "Authentication failed. Check your password in OBS WebSocket settings."
+        );
+      } else if (
+        message.includes("No input") ||
+        message.includes("not found")
+      ) {
         setObsTestError(
           `Text source "${localObsSettings.captionSource}" not found in OBS. ` +
-          "Create a Text (GDI+) source with this exact name."
+            "Create a Text (GDI+) source with this exact name."
         );
       } else {
         setObsTestError(message);

@@ -23,6 +23,10 @@ type Options = {
   maxCharsPerLine?: number;
   /** Maximum number of lines to display (default: 3) */
   maxLines?: number;
+  /** Delay between queued OBS updates when text is appended (default: 120) */
+  queueDelayMs?: number;
+  /** Split each appended update into this many parts before queueing (default: 2) */
+  splitParts?: number;
   /** Connection settings for OBS WebSocket */
   connectionSettings?: ObsConnectionSettings;
 };
@@ -34,6 +38,8 @@ type PushOptions = {
 const DEFAULT_DEBOUNCE_MS = 250;
 const DEFAULT_MAX_CHARS_PER_LINE = 45;
 const DEFAULT_MAX_LINES = 3;
+const DEFAULT_QUEUE_DELAY_MS = 120;
+const DEFAULT_SPLIT_PARTS = 2;
 
 /**
  * Creates stable captions based on the previous project's algorithm:
@@ -84,6 +90,27 @@ function createStableCaptions(
   return finalLines.join("\n");
 }
 
+function normalizeObsText(text: string): string {
+  return text
+    .replace(/(\r\n|\n|\r)/gm, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function splitObsWords(text: string): string[] {
+  const normalized = normalizeObsText(text);
+  if (!normalized) return [];
+  return normalized.split(" ").filter(Boolean);
+}
+
+function isWordPrefix(prefix: string[], full: string[]): boolean {
+  if (prefix.length > full.length) return false;
+  for (let i = 0; i < prefix.length; i += 1) {
+    if (prefix[i] !== full[i]) return false;
+  }
+  return true;
+}
+
 /**
  * Build WebSocket address for OBS connection.
  * Works with both local IPs and hostnames.
@@ -109,6 +136,8 @@ export function useObsCaptionPublisher(text: string, options: Options = {}) {
     debounceMs = DEFAULT_DEBOUNCE_MS,
     maxCharsPerLine = DEFAULT_MAX_CHARS_PER_LINE,
     maxLines = DEFAULT_MAX_LINES,
+    queueDelayMs = DEFAULT_QUEUE_DELAY_MS,
+    splitParts = DEFAULT_SPLIT_PARTS,
     connectionSettings,
   } = options;
 
@@ -120,6 +149,13 @@ export function useObsCaptionPublisher(text: string, options: Options = {}) {
   const connectionPromiseRef = useRef<Promise<void> | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPayloadRef = useRef<string>("");
+  const queueTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const queuedChunksRef = useRef<string[][]>([]);
+  const publishedWordsRef = useRef<string[]>([]);
+  const lastObservedWordsRef = useRef<string[]>([]);
+  const isDrainingRef = useRef(false);
+  const enabledRef = useRef(false);
+  const latestTextRef = useRef(text);
   const connectionSettingsRef = useRef(connectionSettings);
   const isConnectedRef = useRef(false);
 
@@ -127,6 +163,28 @@ export function useObsCaptionPublisher(text: string, options: Options = {}) {
   useEffect(() => {
     connectionSettingsRef.current = connectionSettings;
   }, [connectionSettings]);
+
+  useEffect(() => {
+    enabledRef.current = enabled;
+  }, [enabled]);
+
+  useEffect(() => {
+    latestTextRef.current = text;
+  }, [text]);
+
+  const stopQueue = useCallback(() => {
+    if (queueTimerRef.current) {
+      clearTimeout(queueTimerRef.current);
+      queueTimerRef.current = null;
+    }
+    queuedChunksRef.current = [];
+    isDrainingRef.current = false;
+  }, []);
+
+  const resetWordTracking = useCallback(() => {
+    lastObservedWordsRef.current = [];
+    publishedWordsRef.current = [];
+  }, []);
 
   /**
    * Ensure OBS WebSocket is connected.
@@ -222,12 +280,14 @@ export function useObsCaptionPublisher(text: string, options: Options = {}) {
       }
       obsRef.current = null;
     }
+    stopQueue();
+    resetWordTracking();
     isConnectedRef.current = false;
     connectionPromiseRef.current = null;
     lastPayloadRef.current = "";
     setStatus("idle");
     setError(null);
-  }, []);
+  }, [resetWordTracking, stopQueue]);
 
   /**
    * Push caption text to OBS.
@@ -260,6 +320,10 @@ export function useObsCaptionPublisher(text: string, options: Options = {}) {
 
         setStatus("sending");
 
+        console.log(
+          `[obs-client] Updating caption source "${settings.captionSource}" with text: "${captionText}"`
+        );
+
         await obs.call("SetInputSettings", {
           inputName: settings.captionSource,
           inputSettings: { text: captionText },
@@ -287,6 +351,98 @@ export function useObsCaptionPublisher(text: string, options: Options = {}) {
     [ensureConnected, maxCharsPerLine, maxLines]
   );
 
+  const enqueueWords = useCallback(
+    (words: string[]) => {
+      if (!words.length) return;
+      const parts = Math.max(1, splitParts);
+      if (parts === 1 || words.length === 1) {
+        queuedChunksRef.current.push(words);
+        return;
+      }
+
+      const chunkSize = Math.max(1, Math.ceil(words.length / parts));
+      for (let i = 0; i < words.length; i += chunkSize) {
+        queuedChunksRef.current.push(words.slice(i, i + chunkSize));
+      }
+    },
+    [splitParts]
+  );
+
+  const drainQueue = useCallback(async () => {
+    if (isDrainingRef.current || !enabledRef.current) return;
+    isDrainingRef.current = true;
+
+    const step = async () => {
+      if (!enabledRef.current) {
+        isDrainingRef.current = false;
+        queueTimerRef.current = null;
+        return;
+      }
+
+      const nextChunk = queuedChunksRef.current.shift();
+      if (!nextChunk) {
+        isDrainingRef.current = false;
+        queueTimerRef.current = null;
+        return;
+      }
+
+      if (nextChunk.length) {
+        publishedWordsRef.current.push(...nextChunk);
+        try {
+          await pushUpdate(publishedWordsRef.current.join(" "));
+        } catch {
+          // Push errors are already handled inside pushUpdate
+        }
+      }
+
+      if (!enabledRef.current) {
+        isDrainingRef.current = false;
+        queueTimerRef.current = null;
+        return;
+      }
+
+      queueTimerRef.current = setTimeout(() => {
+        void step();
+      }, queueDelayMs);
+    };
+
+    void step();
+  }, [pushUpdate, queueDelayMs]);
+
+  const syncToText = useCallback(
+    (value: string) => {
+      stopQueue();
+      const words = splitObsWords(value);
+      lastObservedWordsRef.current = words;
+      publishedWordsRef.current = [...words];
+      void pushUpdate(words.join(" "), { force: true });
+    },
+    [pushUpdate, stopQueue]
+  );
+
+  const handleIncomingText = useCallback(
+    (value: string) => {
+      const nextWords = splitObsWords(value);
+      const prevWords = lastObservedWordsRef.current;
+
+      if (!isWordPrefix(prevWords, nextWords)) {
+        syncToText(value);
+        return;
+      }
+
+      const newWords = nextWords.slice(prevWords.length);
+      lastObservedWordsRef.current = nextWords;
+
+      if (!newWords.length) {
+        return;
+      }
+
+      enqueueWords(newWords);
+      void drainQueue();
+    },
+    [drainQueue, enqueueWords, syncToText]
+  );
+
   // Auto-push when text changes (with debounce)
   useEffect(() => {
     if (!enabled) {
@@ -298,7 +454,7 @@ export function useObsCaptionPublisher(text: string, options: Options = {}) {
     }
 
     debounceRef.current = setTimeout(() => {
-      void pushUpdate(text);
+      handleIncomingText(text);
     }, debounceMs);
 
     return () => {
@@ -307,7 +463,7 @@ export function useObsCaptionPublisher(text: string, options: Options = {}) {
         debounceRef.current = null;
       }
     };
-  }, [debounceMs, enabled, pushUpdate, text]);
+  }, [debounceMs, enabled, handleIncomingText, text]);
 
   // Handle enable/disable state changes
   useEffect(() => {
@@ -317,8 +473,11 @@ export function useObsCaptionPublisher(text: string, options: Options = {}) {
         debounceRef.current = null;
       }
       disconnect();
+      return;
     }
-  }, [enabled, disconnect]);
+
+    syncToText(latestTextRef.current);
+  }, [enabled, disconnect, syncToText]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -336,9 +495,9 @@ export function useObsCaptionPublisher(text: string, options: Options = {}) {
 
   const sendNow = useCallback(
     (value?: string) => {
-      void pushUpdate(value ?? text, { force: true });
+      syncToText(value ?? text);
     },
-    [pushUpdate, text]
+    [syncToText, text]
   );
 
   return {
