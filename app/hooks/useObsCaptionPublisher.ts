@@ -39,7 +39,7 @@ const DEFAULT_DEBOUNCE_MS = 250;
 const DEFAULT_MAX_CHARS_PER_LINE = 45;
 const DEFAULT_MAX_LINES = 3;
 const DEFAULT_QUEUE_DELAY_MS = 120;
-const DEFAULT_SPLIT_PARTS = 2;
+const DEFAULT_SPLIT_PARTS = 3;
 
 /**
  * Creates stable captions based on the previous project's algorithm:
