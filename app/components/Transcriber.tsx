@@ -399,8 +399,10 @@ export default function Transcriber() {
     debounceMs: 250,
     maxCharsPerLine: 45, // Wrap lines at ~45 chars
     maxLines: 3, // Show last 3 lines (stable captions, prevents shifting)
-    queueDelayMs: 120,
-    splitParts: 2,
+    // Word-by-word timing (YouTube-style captions)
+    minWordDelayMs: 50, // Fastest pace for large batches
+    maxWordDelayMs: 120, // Comfortable pace for small batches
+    targetWindowMs: 2000, // Spread words over ~2 seconds max
     connectionSettings: obsSettings,
   });
 

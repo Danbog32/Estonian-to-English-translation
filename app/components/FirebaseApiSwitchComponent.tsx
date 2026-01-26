@@ -237,7 +237,7 @@ export default function FirebaseApiSwitchComponent({
       // Test sending a caption to verify the source exists
       await obs.call("SetInputSettings", {
         inputName: localObsSettings.captionSource || "LiveCaptions",
-        inputSettings: { text: "🔗 Connection test successful!" },
+        inputSettings: { text: "Test caption" },
         overlay: true,
       });
 

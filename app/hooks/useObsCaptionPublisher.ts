@@ -23,10 +23,21 @@ type Options = {
   maxCharsPerLine?: number;
   /** Maximum number of lines to display (default: 3) */
   maxLines?: number;
-  /** Delay between queued OBS updates when text is appended (default: 120) */
-  queueDelayMs?: number;
-  /** Split each appended update into this many parts before queueing (default: 2) */
-  splitParts?: number;
+  /**
+   * Minimum delay between words in milliseconds (default: 50).
+   * Used when many words are queued to catch up quickly.
+   */
+  minWordDelayMs?: number;
+  /**
+   * Maximum delay between words in milliseconds (default: 120).
+   * Used for comfortable reading when few words are queued.
+   */
+  maxWordDelayMs?: number;
+  /**
+   * Target time window to spread a batch of words over (default: 2000ms).
+   * The actual delay per word = clamp(targetWindow / wordCount, minDelay, maxDelay).
+   */
+  targetWindowMs?: number;
   /** Connection settings for OBS WebSocket */
   connectionSettings?: ObsConnectionSettings;
 };
@@ -38,8 +49,12 @@ type PushOptions = {
 const DEFAULT_DEBOUNCE_MS = 250;
 const DEFAULT_MAX_CHARS_PER_LINE = 45;
 const DEFAULT_MAX_LINES = 3;
-const DEFAULT_QUEUE_DELAY_MS = 120;
-const DEFAULT_SPLIT_PARTS = 3;
+/** Fastest word-by-word pace (for large batches) - still readable */
+const DEFAULT_MIN_WORD_DELAY_MS = 50;
+/** Comfortable reading pace (for small batches) */
+const DEFAULT_MAX_WORD_DELAY_MS = 120;
+/** Aim to spread words over this time window */
+const DEFAULT_TARGET_WINDOW_MS = 2000;
 
 /**
  * Creates stable captions based on the previous project's algorithm:
@@ -136,8 +151,9 @@ export function useObsCaptionPublisher(text: string, options: Options = {}) {
     debounceMs = DEFAULT_DEBOUNCE_MS,
     maxCharsPerLine = DEFAULT_MAX_CHARS_PER_LINE,
     maxLines = DEFAULT_MAX_LINES,
-    queueDelayMs = DEFAULT_QUEUE_DELAY_MS,
-    splitParts = DEFAULT_SPLIT_PARTS,
+    minWordDelayMs = DEFAULT_MIN_WORD_DELAY_MS,
+    maxWordDelayMs = DEFAULT_MAX_WORD_DELAY_MS,
+    targetWindowMs = DEFAULT_TARGET_WINDOW_MS,
     connectionSettings,
   } = options;
 
@@ -150,7 +166,10 @@ export function useObsCaptionPublisher(text: string, options: Options = {}) {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPayloadRef = useRef<string>("");
   const queueTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const queuedChunksRef = useRef<string[][]>([]);
+  /** Queue of individual words to send one-by-one */
+  const queuedWordsRef = useRef<string[]>([]);
+  /** Current delay being used for draining (calculated when words are queued) */
+  const currentDelayRef = useRef<number>(maxWordDelayMs);
   const publishedWordsRef = useRef<string[]>([]);
   const lastObservedWordsRef = useRef<string[]>([]);
   const isDrainingRef = useRef(false);
@@ -177,7 +196,7 @@ export function useObsCaptionPublisher(text: string, options: Options = {}) {
       clearTimeout(queueTimerRef.current);
       queueTimerRef.current = null;
     }
-    queuedChunksRef.current = [];
+    queuedWordsRef.current = [];
     isDrainingRef.current = false;
   }, []);
 
@@ -351,23 +370,52 @@ export function useObsCaptionPublisher(text: string, options: Options = {}) {
     [ensureConnected, maxCharsPerLine, maxLines]
   );
 
+  /**
+   * Calculate adaptive delay based on number of words to send.
+   * Uses the formula: delay = clamp(targetWindow / wordCount, minDelay, maxDelay)
+   *
+   * This creates a "catch-up" effect:
+   * - Few words: comfortable reading pace (maxDelay)
+   * - Many words: faster pace to not fall behind (approaches minDelay)
+   */
+  const calculateWordDelay = useCallback(
+    (wordCount: number) => {
+      if (wordCount <= 0) return maxWordDelayMs;
+
+      const idealDelay = targetWindowMs / wordCount;
+      return Math.max(minWordDelayMs, Math.min(maxWordDelayMs, idealDelay));
+    },
+    [minWordDelayMs, maxWordDelayMs, targetWindowMs]
+  );
+
+  /**
+   * Queue words and calculate the appropriate delay for this batch.
+   * Words are added to the queue and will be sent one-by-one.
+   */
   const enqueueWords = useCallback(
     (words: string[]) => {
       if (!words.length) return;
-      const parts = Math.max(1, splitParts);
-      if (parts === 1 || words.length === 1) {
-        queuedChunksRef.current.push(words);
-        return;
-      }
 
-      const chunkSize = Math.max(1, Math.ceil(words.length / parts));
-      for (let i = 0; i < words.length; i += chunkSize) {
-        queuedChunksRef.current.push(words.slice(i, i + chunkSize));
-      }
+      // Calculate delay based on total words we need to process
+      // (both already queued + new words)
+      const totalWords = queuedWordsRef.current.length + words.length;
+      currentDelayRef.current = calculateWordDelay(totalWords);
+
+      // Add each word individually to the queue
+      queuedWordsRef.current.push(...words);
+
+      console.log(
+        `[obs-client] Queued ${words.length} words (${totalWords} total), delay: ${currentDelayRef.current}ms`
+      );
     },
-    [splitParts]
+    [calculateWordDelay]
   );
 
+  /**
+   * Drain the queue word-by-word with the calculated adaptive delay.
+   * Each word is pushed individually to OBS, creating a smooth
+   * YouTube-like caption experience.
+   */
   const drainQueue = useCallback(async () => {
     if (isDrainingRef.current || !enabledRef.current) return;
     isDrainingRef.current = true;
@@ -379,20 +427,19 @@ export function useObsCaptionPublisher(text: string, options: Options = {}) {
         return;
       }
 
-      const nextChunk = queuedChunksRef.current.shift();
-      if (!nextChunk) {
+      const nextWord = queuedWordsRef.current.shift();
+      if (!nextWord) {
         isDrainingRef.current = false;
         queueTimerRef.current = null;
         return;
       }
 
-      if (nextChunk.length) {
-        publishedWordsRef.current.push(...nextChunk);
-        try {
-          await pushUpdate(publishedWordsRef.current.join(" "));
-        } catch {
-          // Push errors are already handled inside pushUpdate
-        }
+      // Add the single word to published words
+      publishedWordsRef.current.push(nextWord);
+      try {
+        await pushUpdate(publishedWordsRef.current.join(" "));
+      } catch {
+        // Push errors are already handled inside pushUpdate
       }
 
       if (!enabledRef.current) {
@@ -401,13 +448,14 @@ export function useObsCaptionPublisher(text: string, options: Options = {}) {
         return;
       }
 
+      // Use the calculated delay for this batch
       queueTimerRef.current = setTimeout(() => {
         void step();
-      }, queueDelayMs);
+      }, currentDelayRef.current);
     };
 
     void step();
-  }, [pushUpdate, queueDelayMs]);
+  }, [pushUpdate]);
 
   const syncToText = useCallback(
     (value: string) => {
