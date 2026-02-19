@@ -15,7 +15,7 @@ type HealthResponse = {
   http_status?: number;
 };
 
-export function useTranslationHealth(pollMs: number = 10000) {
+export function useTranslationHealth(pollMs: number | null = null) {
   const [status, setStatus] = useState<HealthStatus>("unreachable");
   const [message, setMessage] = useState<string>("");
   const [lastCheckedAt, setLastCheckedAt] = useState<number | null>(null);
@@ -37,6 +37,13 @@ export function useTranslationHealth(pollMs: number = 10000) {
 
   useEffect(() => {
     void fetchHealth();
+    if (!pollMs || pollMs <= 0) {
+      return () => {
+        if (timerRef.current) window.clearInterval(timerRef.current);
+        timerRef.current = null;
+      };
+    }
+
     timerRef.current = window.setInterval(() => {
       void fetchHealth();
     }, pollMs);

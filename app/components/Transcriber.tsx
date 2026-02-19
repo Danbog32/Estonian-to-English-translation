@@ -11,6 +11,7 @@ import ResizableSplit from "./ResizableSplit";
 import HeaderControls from "./HeaderControls";
 import WordDisplay from "./WordDisplay";
 import LangDropdown from "./LangDropdown";
+import StatusBanner, { type StatusBannerIcon } from "./StatusBanner";
 import { useObsCaptionPublisher } from "../hooks/useObsCaptionPublisher";
 import { AudioLevelIndicator } from "./AudioLevelIndicator";
 import {
@@ -31,9 +32,31 @@ type HistoryEntry = {
   target: string;
 };
 
+type SessionNotice = {
+  title: string;
+  hint?: string;
+  icon?: StatusBannerIcon;
+};
+
+type PresenceModalState = "hidden" | "confirming" | "ended";
+
+const PRESENCE_CONFIRM_INTERVAL_MS = 2 * 60 * 60 * 1000; // 2 hours
+const PRESENCE_CONFIRM_TIMEOUT_MS = 60 * 1000; // 1 minute
+const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+const SESSION_CHECK_INTERVAL_MS = 1000; // 1 second
+
 export default function Transcriber() {
   const [transcript, setTranscript] = useState<string>("");
   const [translation, setTranslation] = useState<string>("");
+  const [sessionNotice, setSessionNotice] = useState<SessionNotice | null>(
+    null,
+  );
+  const [presenceModalState, setPresenceModalState] =
+    useState<PresenceModalState>("hidden");
+  const [presenceSecondsLeft, setPresenceSecondsLeft] = useState(
+    Math.ceil(PRESENCE_CONFIRM_TIMEOUT_MS / 1000),
+  );
+  const [isResumingAfterTimeout, setIsResumingAfterTimeout] = useState(false);
 
   // Default to "left" (source language) on mobile, "split" on desktop
   const [viewMode, setViewMode] = useState<"left" | "split" | "right">(() => {
@@ -48,7 +71,7 @@ export default function Transcriber() {
 
   // OBS Settings state
   const [obsSettings, setObsSettings] = useState<ObsConnectionSettings>(() =>
-    getStoredObsSettings()
+    getStoredObsSettings(),
   );
 
   const pendingWordsRef = useRef<string[]>([]);
@@ -59,11 +82,14 @@ export default function Transcriber() {
   const lastTargetBatchSizeRef = useRef(0);
   const targetWordsRef = useRef<string[]>([]);
   const [revealActiveIndex, setRevealActiveIndex] = useState<number | null>(
-    null
+    null,
   );
   const revealBaseIndexRef = useRef(0);
   const revealStartTimeRef = useRef(0);
   const revealRafRef = useRef<number | null>(null);
+  const sessionStartAtRef = useRef<number | null>(Date.now());
+  const lastSpeechAtRef = useRef<number | null>(null);
+  const resumeCaptureAfterPresenceRef = useRef(false);
   const REVEAL_DELAY_MS = 120;
 
   const TRANSLATION_WINDOW_THRESHOLD = 6;
@@ -117,6 +143,11 @@ export default function Transcriber() {
       .trim();
   }, []);
 
+  const markSpeechActivity = useCallback((text: string) => {
+    if (!text.trim()) return;
+    lastSpeechAtRef.current = Date.now();
+  }, []);
+
   const ingestPartialDelta = useCallback(
     (partialText: string) => {
       const cleaned = normalize(partialText);
@@ -132,13 +163,13 @@ export default function Transcriber() {
       ) {
         const chunkWords = words.slice(
           emittedInSegmentRef.current,
-          emittedInSegmentRef.current + TRANSLATION_CHUNK_SIZE
+          emittedInSegmentRef.current + TRANSLATION_CHUNK_SIZE,
         );
         preparedChunksRef.current.push(chunkWords.join(" "));
         emittedInSegmentRef.current += TRANSLATION_CHUNK_SIZE;
       }
     },
-    [normalize]
+    [normalize],
   );
 
   const drainQueue = useCallback(async () => {
@@ -185,7 +216,7 @@ export default function Transcriber() {
             if (historyRef.current.length > HISTORY_MAX) {
               historyRef.current.splice(
                 0,
-                historyRef.current.length - HISTORY_MAX
+                historyRef.current.length - HISTORY_MAX,
               );
             }
           }
@@ -211,10 +242,12 @@ export default function Transcriber() {
     language: getAsrLanguage(sourceLang),
     deltaMode: isDeltaMode,
     onPartial: (text) => {
+      markSpeechActivity(text);
       ingestPartialDelta(text);
       void drainQueue();
     },
     onFinal: (text) => {
+      markSpeechActivity(text);
       appendText(text);
       const cleaned = normalize(text);
       const words = cleaned ? cleaned.split(/\s+/) : [];
@@ -228,7 +261,7 @@ export default function Transcriber() {
       ) {
         const chunkWords = words.slice(
           emittedInSegmentRef.current,
-          emittedInSegmentRef.current + TRANSLATION_CHUNK_SIZE
+          emittedInSegmentRef.current + TRANSLATION_CHUNK_SIZE,
         );
         preparedChunksRef.current.push(chunkWords.join(" "));
         emittedInSegmentRef.current += TRANSLATION_CHUNK_SIZE;
@@ -239,7 +272,7 @@ export default function Transcriber() {
         while (pendingWordsRef.current.length >= TRANSLATION_WINDOW_THRESHOLD) {
           const chunkWords = pendingWordsRef.current.splice(
             0,
-            TRANSLATION_CHUNK_SIZE
+            TRANSLATION_CHUNK_SIZE,
           );
           preparedChunksRef.current.push(chunkWords.join(" "));
         }
@@ -249,6 +282,7 @@ export default function Transcriber() {
       currentSegmentWordsRef.current = [];
     },
     onFlushComplete: (text) => {
+      markSpeechActivity(text);
       if (text) {
         appendText(text);
         const cleaned = normalize(text);
@@ -263,7 +297,7 @@ export default function Transcriber() {
         ) {
           const chunkWords = words.slice(
             emittedInSegmentRef.current,
-            emittedInSegmentRef.current + TRANSLATION_CHUNK_SIZE
+            emittedInSegmentRef.current + TRANSLATION_CHUNK_SIZE,
           );
           preparedChunksRef.current.push(chunkWords.join(" "));
           emittedInSegmentRef.current += TRANSLATION_CHUNK_SIZE;
@@ -283,6 +317,11 @@ export default function Transcriber() {
     },
     onError: () => {},
     onStreamStarted: () => {
+      if (!sessionStartAtRef.current) {
+        const now = Date.now();
+        sessionStartAtRef.current = now;
+        lastSpeechAtRef.current = now;
+      }
       emittedInSegmentRef.current = 0;
       currentSegmentWordsRef.current = [];
     },
@@ -299,12 +338,18 @@ export default function Transcriber() {
 
   const isBusy = useMemo(
     () => mic.isRecording || asr.isStreamActive,
-    [mic.isRecording, asr.isStreamActive]
+    [mic.isRecording, asr.isStreamActive],
   );
 
   const stopStream = useCallback(
     async ({ flush = true }: { flush?: boolean } = {}) => {
-      if (!mic.isRecording && !asr.isStreamActive) return;
+      if (!mic.isRecording && !asr.isStreamActive) {
+        if (!flush) {
+          asr.endStream();
+          asr.close();
+        }
+        return;
+      }
       try {
         await mic.stop();
       } catch {
@@ -321,20 +366,139 @@ export default function Transcriber() {
         }, 0);
       }
     },
-    [asr, mic]
+    [asr, mic],
+  );
+
+  const resetPresenceGate = useCallback(() => {
+    setPresenceModalState("hidden");
+    setPresenceSecondsLeft(Math.ceil(PRESENCE_CONFIRM_TIMEOUT_MS / 1000));
+    setIsResumingAfterTimeout(false);
+    sessionStartAtRef.current = Date.now();
+    resumeCaptureAfterPresenceRef.current = false;
+  }, []);
+
+  const startCapture = useCallback(
+    ({ reset }: { reset: boolean }) => {
+      if (reset) {
+        resetSessionState();
+      }
+      resetPresenceGate();
+      setSessionNotice(null);
+      const now = Date.now();
+      sessionStartAtRef.current = now;
+      lastSpeechAtRef.current = now;
+      asr.startStream();
+      setTimeout(() => {
+        void mic.start();
+      }, 150);
+    },
+    [asr, mic, resetPresenceGate, resetSessionState],
   );
 
   const handleStart = useCallback(() => {
-    resetSessionState();
-    asr.startStream();
-    setTimeout(() => {
-      mic.start();
-    }, 150);
-  }, [asr, mic, resetSessionState]);
+    startCapture({ reset: true });
+  }, [startCapture]);
+
+  const handlePresenceConfirm = useCallback(() => {
+    if (presenceModalState !== "confirming") return;
+    if (resumeCaptureAfterPresenceRef.current) {
+      startCapture({ reset: false });
+      return;
+    }
+    resetPresenceGate();
+  }, [presenceModalState, resetPresenceGate, startCapture]);
+
+  const handleResumeAfterTimeout = useCallback(async () => {
+    setIsResumingAfterTimeout(true);
+    try {
+      await fetch("/api/translate/health", { cache: "no-store" });
+    } catch {
+      // If health check fails, still attempt to resume.
+    } finally {
+      if (resumeCaptureAfterPresenceRef.current) {
+        setIsResumingAfterTimeout(false);
+        startCapture({ reset: false });
+        return;
+      }
+      resetPresenceGate();
+    }
+  }, [resetPresenceGate, startCapture]);
 
   const handleStop = useCallback(() => {
+    setPresenceModalState("hidden");
+    setPresenceSecondsLeft(Math.ceil(PRESENCE_CONFIRM_TIMEOUT_MS / 1000));
+    setIsResumingAfterTimeout(false);
+    setSessionNotice(null);
+    sessionStartAtRef.current = Date.now();
+    resumeCaptureAfterPresenceRef.current = false;
+    lastSpeechAtRef.current = null;
     void stopStream({ flush: true });
   }, [stopStream]);
+
+  useEffect(() => {
+    if (presenceModalState !== "hidden") return;
+    const timer = window.setInterval(() => {
+      const now = Date.now();
+      if (
+        sessionStartAtRef.current &&
+        now - sessionStartAtRef.current >= PRESENCE_CONFIRM_INTERVAL_MS
+      ) {
+        resumeCaptureAfterPresenceRef.current = isBusy;
+        setPresenceModalState("confirming");
+        setPresenceSecondsLeft(Math.ceil(PRESENCE_CONFIRM_TIMEOUT_MS / 1000));
+        setSessionNotice(null);
+        if (isBusy) {
+          void stopStream({ flush: true });
+        }
+        return;
+      }
+      if (
+        lastSpeechAtRef.current &&
+        now - lastSpeechAtRef.current >= INACTIVITY_TIMEOUT_MS
+      ) {
+        sessionStartAtRef.current = Date.now();
+        resumeCaptureAfterPresenceRef.current = false;
+        lastSpeechAtRef.current = null;
+        setPresenceModalState("hidden");
+        setSessionNotice({
+          title: "Translation stopped",
+          hint: "No words detected for 5 minutes. Press Start to continue.",
+          icon: "pause",
+        });
+        void stopStream({ flush: true });
+      }
+    }, SESSION_CHECK_INTERVAL_MS);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [isBusy, presenceModalState, stopStream]);
+
+  useEffect(() => {
+    if (presenceModalState !== "confirming") return;
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => {
+      const elapsed = Date.now() - startedAt;
+      const remainingMs = Math.max(0, PRESENCE_CONFIRM_TIMEOUT_MS - elapsed);
+      setPresenceSecondsLeft(Math.ceil(remainingMs / 1000));
+    }, SESSION_CHECK_INTERVAL_MS);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [presenceModalState]);
+
+  useEffect(() => {
+    if (presenceModalState !== "confirming" || presenceSecondsLeft > 0) return;
+    sessionStartAtRef.current = null;
+    lastSpeechAtRef.current = null;
+    setPresenceModalState("ended");
+    void stopStream({ flush: false });
+  }, [presenceModalState, presenceSecondsLeft, stopStream]);
+
+  useEffect(() => {
+    if (!isBusy) {
+      lastSpeechAtRef.current = null;
+    }
+  }, [isBusy]);
 
   const handleTargetLanguageChange = useCallback(
     async (lang: LanguageCode) => {
@@ -350,7 +514,7 @@ export default function Transcriber() {
         setTargetLang(lang);
       }
     },
-    [isBusy, resetSessionState, stopStream, targetLang, sourceLang]
+    [isBusy, resetSessionState, stopStream, targetLang, sourceLang],
   );
 
   const handleSourceLanguageChange = useCallback(
@@ -367,12 +531,14 @@ export default function Transcriber() {
         setSourceLang(lang);
       }
     },
-    [isBusy, resetSessionState, stopStream, sourceLang, targetLang]
+    [isBusy, resetSessionState, stopStream, sourceLang, targetLang],
   );
 
   const handleClear = useCallback(() => {
+    setSessionNotice(null);
+    resetPresenceGate();
     resetSessionState();
-  }, [resetSessionState]);
+  }, [resetPresenceGate, resetSessionState]);
 
   const sourceLanguageLabel = LANGUAGES[sourceLang]?.label || sourceLang;
   const targetLanguageLabel = LANGUAGES[targetLang]?.label || targetLang;
@@ -384,7 +550,7 @@ export default function Transcriber() {
 
   const targetDisplay = useMemo(
     () => formatTextForDisplay(translation),
-    [translation]
+    [translation],
   );
 
   // Send captions to Firebase when translation updates
@@ -411,7 +577,7 @@ export default function Transcriber() {
       setObsSettings(newSettings);
       storeObsSettings(newSettings);
     },
-    []
+    [],
   );
 
   const targetWords = targetWordsRef.current;
@@ -434,7 +600,7 @@ export default function Transcriber() {
       const elapsed = performance.now() - revealStartTimeRef.current;
       const progressed = Math.min(
         batchSize - 1,
-        Math.floor(elapsed / REVEAL_DELAY_MS)
+        Math.floor(elapsed / REVEAL_DELAY_MS),
       );
       setRevealActiveIndex(base + progressed);
       if (progressed < batchSize - 1) {
@@ -465,7 +631,7 @@ export default function Transcriber() {
 
   const etSplit = useMemo(
     () => splitForHighlight(etDisplay),
-    [etDisplay, splitForHighlight]
+    [etDisplay, splitForHighlight],
   );
 
   const {
@@ -728,6 +894,63 @@ export default function Transcriber() {
       {(asr.error || mic.error) && (
         <div className="fixed left-1/2 top-20 md:top-4 -translate-x-1/2 rounded-md bg-red-500/10 text-red-300 px-4 py-2 md:px-3 md:py-1.5 text-base md:text-sm border border-red-500/20 max-w-[90vw] z-40">
           {asr.error || mic.error}
+        </div>
+      )}
+      {sessionNotice && !(asr.error || mic.error) && (
+        <div className="fixed left-1/2 top-20 md:top-4 z-40 -translate-x-1/2">
+          <StatusBanner
+            tone="warning"
+            icon={sessionNotice.icon || "pause"}
+            title={sessionNotice.title}
+            hint={sessionNotice.hint}
+          />
+        </div>
+      )}
+      {presenceModalState !== "hidden" && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 px-4">
+          <div className="w-full max-w-md rounded-2xl border border-white/15 bg-[#0b0f12] p-5 text-white shadow-2xl">
+            {presenceModalState === "confirming" ? (
+              <>
+                <h2 className="text-lg font-semibold tracking-tight">
+                  Still here?
+                </h2>
+                <p className="mt-2 text-sm text-white/70">
+                  Session paused after 2 hours. Confirm within{" "}
+                  <span className="font-semibold text-amber-300">
+                    {presenceSecondsLeft}s
+                  </span>{" "}
+                  to continue seamlessly.
+                </p>
+                <div className="mt-5 flex justify-end">
+                  <Button
+                    className="rounded-full bg-emerald-500 hover:bg-emerald-400 text-black px-4 py-2 text-sm font-medium"
+                    onPress={handlePresenceConfirm}
+                  >
+                    Still Here
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h2 className="text-lg font-semibold tracking-tight">
+                  Session ended
+                </h2>
+                <p className="mt-2 text-sm text-white/70">
+                  No confirmation was received in time. Continue to reconnect,
+                  check server health, and resume translation.
+                </p>
+                <div className="mt-5 flex justify-end">
+                  <Button
+                    className="rounded-full bg-emerald-500 hover:bg-emerald-400 text-black px-4 py-2 text-sm font-medium disabled:opacity-60"
+                    onPress={handleResumeAfterTimeout}
+                    disabled={isResumingAfterTimeout}
+                  >
+                    {isResumingAfterTimeout ? "Continuing..." : "Continue"}
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>
