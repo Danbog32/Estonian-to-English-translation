@@ -14,6 +14,7 @@ import LangDropdown from "./LangDropdown";
 import StatusBanner, { type StatusBannerIcon } from "./StatusBanner";
 import { useObsCaptionPublisher } from "../hooks/useObsCaptionPublisher";
 import { AudioLevelIndicator } from "./AudioLevelIndicator";
+import { useTurnstile } from "../contexts/TurnstileContext";
 import {
   getStoredObsSettings,
   storeObsSettings,
@@ -39,6 +40,21 @@ type SessionNotice = {
 };
 
 type PresenceModalState = "hidden" | "confirming" | "ended";
+type TurnstileApi = {
+  render: (
+    container: HTMLElement,
+    options: {
+      sitekey: string;
+      theme?: "light" | "dark" | "auto";
+      action?: string;
+      appearance?: "always" | "execute" | "interaction-only";
+      callback?: (token: string) => void;
+      "expired-callback"?: () => void;
+      "error-callback"?: () => void;
+    },
+  ) => string;
+  remove: (widgetId?: string) => void;
+};
 
 const PRESENCE_CONFIRM_INTERVAL_MS = 2 * 60 * 60 * 1000; // 2 hours
 const PRESENCE_CONFIRM_TIMEOUT_MS = 60 * 1000; // 1 minute
@@ -46,6 +62,12 @@ const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const SESSION_CHECK_INTERVAL_MS = 1000; // 1 second
 
 export default function Transcriber() {
+  const {
+    enabled: turnstileEnabled,
+    siteKey: turnstileSiteKey,
+    token: turnstileToken,
+    setToken: setTurnstileToken,
+  } = useTurnstile();
   const [transcript, setTranscript] = useState<string>("");
   const [translation, setTranslation] = useState<string>("");
   const [sessionNotice, setSessionNotice] = useState<SessionNotice | null>(
@@ -57,6 +79,7 @@ export default function Transcriber() {
     Math.ceil(PRESENCE_CONFIRM_TIMEOUT_MS / 1000),
   );
   const [isResumingAfterTimeout, setIsResumingAfterTimeout] = useState(false);
+  const [turnstileError, setTurnstileError] = useState<string>("");
 
   // Default to "left" (source language) on mobile, "split" on desktop
   const [viewMode, setViewMode] = useState<"left" | "split" | "right">(() => {
@@ -77,6 +100,8 @@ export default function Transcriber() {
   const pendingWordsRef = useRef<string[]>([]);
   const preparedChunksRef = useRef<string[]>([]);
   const isSendingRef = useRef(false);
+  const turnstileContainerRef = useRef<HTMLDivElement | null>(null);
+  const turnstileWidgetIdRef = useRef<string | null>(null);
   const currentSegmentWordsRef = useRef<string[]>([]);
   const emittedInSegmentRef = useRef(0);
   const lastTargetBatchSizeRef = useRef(0);
@@ -135,6 +160,82 @@ export default function Transcriber() {
       revealRafRef.current = null;
     }
   }, []);
+
+  useEffect(() => {
+    if (!turnstileEnabled || !turnstileSiteKey) return;
+    if (!turnstileContainerRef.current) return;
+
+    let isCancelled = false;
+    let pollTimer: number | null = null;
+    let initTimeout: number | null = null;
+
+    const mountTurnstile = (): boolean => {
+      const api = (window as typeof window & { turnstile?: TurnstileApi })
+        .turnstile;
+      const container = turnstileContainerRef.current;
+      if (!api || !container || turnstileWidgetIdRef.current) return false;
+
+      turnstileWidgetIdRef.current = api.render(container, {
+        sitekey: turnstileSiteKey,
+        theme: "dark",
+        action: "translate",
+        appearance: "always",
+        callback: (token: string) => {
+          if (isCancelled) return;
+          setTurnstileToken(token);
+          setTurnstileError("");
+          setSessionNotice(null);
+        },
+        "expired-callback": () => {
+          if (isCancelled) return;
+          setTurnstileToken("");
+          setTurnstileError(
+            "Security check expired. Please complete it again.",
+          );
+        },
+        "error-callback": () => {
+          if (isCancelled) return;
+          setTurnstileToken("");
+          setTurnstileError("Security check failed. Please retry.");
+        },
+      });
+
+      return true;
+    };
+
+    if (!mountTurnstile()) {
+      pollTimer = window.setInterval(() => {
+        if (mountTurnstile() && pollTimer) {
+          window.clearInterval(pollTimer);
+          pollTimer = null;
+        }
+      }, 200);
+      initTimeout = window.setTimeout(() => {
+        if (isCancelled || turnstileWidgetIdRef.current) return;
+        setTurnstileError(
+          "Security check did not initialize. Refresh page and verify Turnstile hostname settings.",
+        );
+      }, 5000);
+    }
+
+    return () => {
+      isCancelled = true;
+      if (pollTimer) {
+        window.clearInterval(pollTimer);
+      }
+      if (initTimeout) {
+        window.clearTimeout(initTimeout);
+      }
+
+      const widgetId = turnstileWidgetIdRef.current;
+      const api = (window as typeof window & { turnstile?: TurnstileApi })
+        .turnstile;
+      if (widgetId && api) {
+        api.remove(widgetId);
+      }
+      turnstileWidgetIdRef.current = null;
+    };
+  }, [turnstileEnabled, turnstileSiteKey, setTurnstileToken]);
 
   const normalize = useCallback((text: string) => {
     return text
@@ -200,6 +301,7 @@ export default function Transcriber() {
           messages,
           max_tokens: 256,
           temperature: 0.0,
+          turnstileToken: turnstileToken || undefined,
         } as const;
 
         try {
@@ -208,6 +310,24 @@ export default function Transcriber() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
           });
+
+          if (resp.status === 403) {
+            preparedChunksRef.current.unshift(chunk);
+            setSessionNotice({
+              title: "Complete the security check",
+              hint: "Please finish the Turnstile check to continue translation.",
+              icon: "alert",
+            });
+            setTurnstileError(
+              "Security verification is required before translation can continue.",
+            );
+            break;
+          }
+
+          if (!resp.ok) {
+            continue;
+          }
+
           const data = await resp.json();
           const translated: string = data?.translated_text ?? "";
           if (translated) {
@@ -227,7 +347,7 @@ export default function Transcriber() {
     } finally {
       isSendingRef.current = false;
     }
-  }, [appendTranslation, sourceLang, targetLang]);
+  }, [appendTranslation, sourceLang, targetLang, turnstileToken]);
 
   // Map source language to ASR server model/language identifier
   const getAsrLanguage = (lang: LanguageCode): string => {
@@ -340,6 +460,7 @@ export default function Transcriber() {
     () => mic.isRecording || asr.isStreamActive,
     [mic.isRecording, asr.isStreamActive],
   );
+  const canStart = !isBusy && (!turnstileEnabled || Boolean(turnstileToken));
 
   const stopStream = useCallback(
     async ({ flush = true }: { flush?: boolean } = {}) => {
@@ -396,8 +517,19 @@ export default function Transcriber() {
   );
 
   const handleStart = useCallback(() => {
+    if (turnstileEnabled && !turnstileToken) {
+      setTurnstileError(
+        "Complete the security check once before starting translation.",
+      );
+      setSessionNotice({
+        title: "Security check required",
+        hint: "Finish the Turnstile check to start translation.",
+        icon: "alert",
+      });
+      return;
+    }
     startCapture({ reset: true });
-  }, [startCapture]);
+  }, [startCapture, turnstileEnabled, turnstileToken]);
 
   const handlePresenceConfirm = useCallback(() => {
     if (presenceModalState !== "confirming") return;
@@ -411,7 +543,10 @@ export default function Transcriber() {
   const handleResumeAfterTimeout = useCallback(async () => {
     setIsResumingAfterTimeout(true);
     try {
-      await fetch("/api/translate/health", { cache: "no-store" });
+      const healthUrl = turnstileToken
+        ? `/api/translate/health?turnstileToken=${encodeURIComponent(turnstileToken)}`
+        : "/api/translate/health";
+      await fetch(healthUrl, { cache: "no-store" });
     } catch {
       // If health check fails, still attempt to resume.
     } finally {
@@ -422,7 +557,7 @@ export default function Transcriber() {
       }
       resetPresenceGate();
     }
-  }, [resetPresenceGate, startCapture]);
+  }, [resetPresenceGate, startCapture, turnstileToken]);
 
   const handleStop = useCallback(() => {
     setPresenceModalState("hidden");
@@ -861,6 +996,19 @@ export default function Transcriber() {
         }
       />
 
+      {turnstileEnabled && (
+        <div className="fixed bottom-24 right-3 md:bottom-6 md:right-4 z-50">
+          <div className="rounded-xl border border-white/15 bg-black/35 px-2 py-2 backdrop-blur-md">
+            <div ref={turnstileContainerRef} className="min-h-[65px]" />
+            <p className="px-1 text-[10px] uppercase tracking-wide text-white/65">
+              {turnstileToken
+                ? "Security check complete"
+                : "Complete security check once to start"}
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="pointer-events-none fixed inset-x-0 bottom-4 md:bottom-6 flex items-center justify-center pb-safe">
         <div className="pointer-events-auto flex items-center gap-2 md:gap-2 rounded-full border border-white/10 bg-white/5 px-3 md:px-2 py-2 md:py-1.5 backdrop-blur-md shadow-lg">
           {mic.isRecording ? (
@@ -871,7 +1019,7 @@ export default function Transcriber() {
           <Button
             className="rounded-full bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-500 text-black px-6 md:px-4 py-2.5 md:py-2 text-base md:text-sm font-medium disabled:opacity-50 min-h-[44px] md:min-h-0"
             onPress={handleStart}
-            disabled={isBusy}
+            disabled={!canStart}
           >
             Start
           </Button>
@@ -891,9 +1039,9 @@ export default function Transcriber() {
         </div>
       </div>
 
-      {(asr.error || mic.error) && (
+      {(asr.error || mic.error || turnstileError) && (
         <div className="fixed left-1/2 top-20 md:top-4 -translate-x-1/2 rounded-md bg-red-500/10 text-red-300 px-4 py-2 md:px-3 md:py-1.5 text-base md:text-sm border border-red-500/20 max-w-[90vw] z-40">
-          {asr.error || mic.error}
+          {asr.error || mic.error || turnstileError}
         </div>
       )}
       {sessionNotice && !(asr.error || mic.error) && (

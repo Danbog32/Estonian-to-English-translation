@@ -2,6 +2,7 @@
 
 import { useMemo, useEffect, useState } from "react";
 import { useTranslationHealth } from "../hooks/useTranslationHealth";
+import { useTurnstile } from "../contexts/TurnstileContext";
 import StatusBanner, {
   type StatusBannerIcon,
   type StatusBannerTone,
@@ -15,8 +16,16 @@ type ServerStatusUi = {
 };
 
 export default function ServerStatus() {
-  const { status, message, lastCheckedAt, refresh } = useTranslationHealth();
+  const {
+    enabled: turnstileEnabled,
+    token: turnstileToken,
+  } = useTurnstile();
+  const { status, message, lastCheckedAt, refresh } = useTranslationHealth({
+    turnstileToken,
+    turnstileEnabled,
+  });
   const [isVisible, setIsVisible] = useState(true);
+  const shouldHideForTurnstile = turnstileEnabled && !turnstileToken;
 
   const ui = useMemo<ServerStatusUi>(() => {
     switch (status) {
@@ -73,7 +82,7 @@ export default function ServerStatus() {
   }, [status]);
 
   // Don't render if not visible
-  if (!isVisible) return null;
+  if (!isVisible || shouldHideForTurnstile) return null;
 
   return (
     <div

@@ -15,15 +15,32 @@ type HealthResponse = {
   http_status?: number;
 };
 
-export function useTranslationHealth(pollMs: number | null = null) {
+type UseTranslationHealthOptions = {
+  pollMs?: number | null;
+  turnstileToken?: string;
+  turnstileEnabled?: boolean;
+};
+
+export function useTranslationHealth({
+  pollMs = null,
+  turnstileToken = "",
+  turnstileEnabled = false,
+}: UseTranslationHealthOptions = {}) {
   const [status, setStatus] = useState<HealthStatus>("unreachable");
   const [message, setMessage] = useState<string>("");
   const [lastCheckedAt, setLastCheckedAt] = useState<number | null>(null);
   const timerRef = useRef<number | null>(null);
 
   const fetchHealth = useCallback(async () => {
+    if (turnstileEnabled && !turnstileToken) {
+      return;
+    }
+
     try {
-      const resp = await fetch("/api/translate/health", { cache: "no-store" });
+      const healthUrl = turnstileToken
+        ? `/api/translate/health?turnstileToken=${encodeURIComponent(turnstileToken)}`
+        : "/api/translate/health";
+      const resp = await fetch(healthUrl, { cache: "no-store" });
       const data = (await resp.json()) as HealthResponse;
       setStatus(data.status);
       setMessage(data.message || "");
@@ -33,7 +50,7 @@ export function useTranslationHealth(pollMs: number | null = null) {
       setMessage("Failed to contact translation service.");
       setLastCheckedAt(Date.now());
     }
-  }, []);
+  }, [turnstileEnabled, turnstileToken]);
 
   useEffect(() => {
     void fetchHealth();
