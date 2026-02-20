@@ -80,6 +80,8 @@ export default function Transcriber() {
   );
   const [isResumingAfterTimeout, setIsResumingAfterTimeout] = useState(false);
   const [turnstileError, setTurnstileError] = useState<string>("");
+  const [turnstileWidgetDismissed, setTurnstileWidgetDismissed] =
+    useState(false);
 
   // Default to "left" (source language) on mobile, "split" on desktop
   const [viewMode, setViewMode] = useState<"left" | "split" | "right">(() => {
@@ -236,6 +238,15 @@ export default function Transcriber() {
       turnstileWidgetIdRef.current = null;
     };
   }, [turnstileEnabled, turnstileSiteKey, setTurnstileToken]);
+
+  useEffect(() => {
+    if (!turnstileToken) {
+      setTurnstileWidgetDismissed(false);
+      return;
+    }
+    const timer = setTimeout(() => setTurnstileWidgetDismissed(true), 2500);
+    return () => clearTimeout(timer);
+  }, [turnstileToken]);
 
   const normalize = useCallback((text: string) => {
     return text
@@ -997,14 +1008,54 @@ export default function Transcriber() {
       />
 
       {turnstileEnabled && (
-        <div className="fixed bottom-24 right-3 md:bottom-6 md:right-4 z-50">
-          <div className="rounded-xl border border-white/15 bg-black/35 px-2 py-2 backdrop-blur-md">
-            <div ref={turnstileContainerRef} className="min-h-[65px]" />
-            <p className="px-1 text-[10px] uppercase tracking-wide text-white/65">
-              {turnstileToken
-                ? "Security check complete"
-                : "Complete security check once to start"}
-            </p>
+        <div
+          className={`fixed bottom-24 right-3 md:bottom-6 md:right-4 z-50 transition-all duration-500 ease-out ${
+            turnstileWidgetDismissed
+              ? "opacity-0 translate-y-3 pointer-events-none"
+              : "opacity-100 translate-y-0"
+          }`}
+        >
+          <div className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-black/50 shadow-2xl shadow-black/60 backdrop-blur-2xl ring-1 ring-inset ring-white/[0.04]">
+            {/* Turnstile iframe — must stay in DOM */}
+            <div
+              ref={turnstileContainerRef}
+              className={`min-h-[65px] px-2 pt-2 transition-opacity duration-300 ${
+                turnstileToken ? "opacity-0" : "opacity-100"
+              }`}
+            />
+            {/* Pending label */}
+            <div
+              className={`px-3 pb-2.5 pt-0.5 transition-opacity duration-300 ${
+                turnstileToken ? "opacity-0" : "opacity-100"
+              }`}
+            >
+              <p className="text-center text-[9px] font-medium uppercase tracking-[0.15em] text-white/30">
+                Security check
+              </p>
+            </div>
+            {/* Success overlay */}
+            <div
+              className={`absolute inset-0 flex flex-col items-center justify-center gap-2 transition-opacity duration-300 ${
+                turnstileToken ? "opacity-100" : "opacity-0 pointer-events-none"
+              }`}
+            >
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-500/10 ring-1 ring-emerald-400/25 shadow-lg shadow-emerald-500/20">
+                <svg
+                  className="h-4 w-4 text-emerald-400"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </div>
+              <p className="text-[9px] font-medium uppercase tracking-[0.15em] text-emerald-400/60">
+                Verified
+              </p>
+            </div>
           </div>
         </div>
       )}
